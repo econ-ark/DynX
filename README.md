@@ -14,3 +14,18 @@ Unlike other available graph-based libraries (e.g., TensorFlow), Dyn-X stores bo
 
 This repository is not yet published on PyPI, but you can install the current
 development release directly from GitHub:
+
+latest commit on the default branch
+
+```bash
+
+pip install "git+https://github.com/akshayshanker/dynx.git#egg=dynx"
+```
+or, install the tagged dev release 0.18.dev0
+```bash
+pip install "git+https://github.com/akshayshanker/dynx.git@v0.18.dev0#egg=dynx"
+```
+
+## Documentation
+
+
