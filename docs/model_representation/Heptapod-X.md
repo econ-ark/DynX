@@ -1,8 +1,8 @@
-# Heptapod-B
+# Heptapod-X
 > *Mathematical representation and parameter resolution for recursive economic models*
 >
 
-This document outlines the architecture and functionality of Heptapod-B.
+This document outlines the architecture and functionality of Heptapod-X.
 
 Heptapod-B is an ***embarrassingly vectorized*** model representation for functional operations. 
 It directly uses NumPy's existing vectorized operations and adds minimal extra syntax to represent:
