@@ -1,13 +1,13 @@
-# Dyn-X: Graphical Modular Dynamic Programming
+# DynX: Graphical Modular Dynamic Programming
 
 ⚠️ **Experimental Development Build** – APIs and documentation are incomplete.⚠️ 
 
-Dyn-X is a directed-acyclic-graph (DAG) framework for solving recursive
+DynX is a directed-acyclic-graph (DAG) framework for solving recursive
 dynamic models. It combines functional recursion with a practical
 graph representation of what would otherwise be an infinite-dimensional
 problem.
 
-Unlike general graph libraries (e.g. *TensorFlow*), Dyn-X represents **both**
+Unlike general graph libraries (e.g. *TensorFlow*), DynX represents **both**
 computational operators **and** the functional objects that define a
 recursive problem.
 
@@ -15,7 +15,7 @@ recursive problem.
 
 ## Installation
 
-Dyn-X is not yet published on PyPI. You can install the latest
+DynX is not yet published on PyPI. You can install the latest
 development build directly from GitHub:
 
 **Main branch (bleeding-edge)**
@@ -41,7 +41,5 @@ pip install --upgrade --force-reinstall \
 
 ## Documentation
 
-Comprehensive documentation is in progress. For now, please see the
-examples in `examples/` and the in-code docstrings.
-
+Comprehensive documentation is in progress. 
 
