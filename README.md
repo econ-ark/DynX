@@ -1,6 +1,6 @@
 # Dyn-X: Functional Recursion Using Graphs
 
-⚠️ **Experimental Development Build** – APIs and documentation may change without notice.⚠️ 
+⚠️ **Experimental Development Build** – APIs and documentation are incomplete may change without notice.⚠️ 
 
 Dyn-X is a directed-acyclic-graph (DAG) framework for solving recursive
 dynamic models. It combines functional recursion with a practical
