@@ -9,5 +9,8 @@ The key innovation of Dyn-X  is to combine recursive functional operations with 
 
 Unlike other available graph-based libraries (e.g., TensorFlow), Dyn-X stores both **computational operators**  and **functional objects**  that define a recursive problem.
 
-- Functional objects (value functions, marginal value functions, distributions, policies, etc.) are stored in nodes, called `perches`.
-- Computational operations (optimization, expectation, simulation, and push-forward operators) between perches are stored in edges, called `movers`.
+
+## Installing the latest development version
+
+This repository is not yet published on PyPI, but you can install the current
+development release directly from GitHub:

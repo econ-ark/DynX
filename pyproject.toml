@@ -1,17 +1,25 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+# setuptools ≥ 61 understands PEP 517/518 and can build wheels
+requires      = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# ────────────────────────────────────────────────────────────────
+# Single authoritative project table
 [project]
 name = "dynx"
-version = "0.1.0"
-description = "Dynamic Economic Modeling Framework"
+# development snapshot
+version = "0.18.dev0"
+description = "Dynamic Functional Economic Modelling"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "ModCraft Team"}
+    {name = "Christopher Carroll"},
+    {name = "Alan Lujan"},
+    {name = "Akshay Shanker"},
+    {name = "Matthew White"},
 ]
+
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -23,6 +31,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Scientific/Engineering :: Economics",
 ]
+
 dependencies = [
     "numpy>=1.20.0",
     "pandas>=1.3.0",
@@ -32,27 +41,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-heptapodx = [
-    "sympy>=1.7.0",
-    "numba>=0.53.0",
-]
-mpi = [
-    "mpi4py>=3.0.0",
-]
-test = [
-    "pytest>=6.0.0",
-    "pytest-cov>=2.12.0",
-]
-dev = [
-    "black>=21.5b2",
-    "isort>=5.9.1",
-    "mypy>=0.800",
-    "flake8>=3.9.0",
-]
-all = [
-    "dynx[heptapodx,mpi,test,dev]",
-]
+heptapodx = ["sympy>=1.7.0", "numba>=0.53.0"]
+mpi       = ["mpi4py>=3.0.0"]
+test      = ["pytest>=6.0.0", "pytest-cov>=2.12.0"]
+dev       = ["black>=21.5b2", "isort>=5.9.1", "mypy>=0.800", "flake8>=3.9.0"]
+all       = ["dynx[heptapodx,mpi,test,dev]"]
 
+# ----------------------------------------------------------------
 [tool.setuptools]
 packages = ["dynx"]
 
