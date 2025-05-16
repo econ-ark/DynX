@@ -1,31 +1,47 @@
-# Dyn-X: Functional Recursion using Graphs
+# Dyn-X: Functional Recursion Using Graphs
 
-⚠️ **Experimental Development Build**  
-This is an experimental development build of Dyn-X. APIs are not stable and may change without notice.
+⚠️ **Experimental Development Build** – APIs may change without notice.
 
-Dyn-X is a directed acyclic graph (DAG) based framework for computing recursive dynamic models.
+Dyn-X is a directed-acyclic-graph (DAG) framework for solving recursive
+dynamic models. It combines functional recursion with a practical
+graph representation of what would otherwise be an infinite-dimensional
+problem.
 
-The key innovation of Dyn-X  is to combine recursive functional operations with a practicable graph-based representation of an otherwise infinite-dimensional process.
+Unlike general graph libraries (e.g. *TensorFlow*), Dyn-X stores **both**
+computational operators **and** the functional objects that define a
+recursive problem.
 
-Unlike other available graph-based libraries (e.g., TensorFlow), Dyn-X stores both **computational operators**  and **functional objects**  that define a recursive problem.
+---
 
+## Installation
 
-## Installing the latest development version
+Dyn-X is not yet published on PyPI. You can install the latest
+development build directly from GitHub:
 
-This repository is not yet published on PyPI, but you can install the current
-development release directly from GitHub:
-
-latest commit on the default branch
+**Main branch (bleeding-edge)**
 
 ```bash
-
 pip install "git+https://github.com/akshayshanker/dynx.git#egg=dynx"
 ```
-or, install the tagged dev release 0.18.dev0
+
+**Specific dev release (v0.18.dev0)**
+
 ```bash
 pip install "git+https://github.com/akshayshanker/dynx.git@v0.18.dev0#egg=dynx"
 ```
 
+To upgrade an existing installation:
+
+```bash
+pip install --upgrade --force-reinstall \
+    "git+https://github.com/akshayshanker/dynx.git#egg=dynx"
+```
+
+---
+
 ## Documentation
+
+Comprehensive documentation is in progress. For now, please see the
+examples in `examples/` and the in-code docstrings.
 
 
