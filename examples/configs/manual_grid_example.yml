@@ -1,0 +1,207 @@
+# Manual Grid Specification Example (v1.6.0)
+# This example demonstrates various ways to manually specify grids in state spaces
+
+meta:
+  name: Manual Grid Example
+  description: Demonstrates various manual grid specification features introduced in v1.6.0
+  version: 1.6.0
+
+parameters:
+  beta: 0.96       # Discount factor
+  r: 0.04          # Interest rate
+  sigma: 0.2       # Standard deviation of income shock
+  gamma: 2.0       # Risk aversion coefficient
+  mu: 0.0          # Mean of income shock
+  w: 1.0           # Wage rate
+  rho: 0.9         # Persistence of income process
+
+numerics:
+  tol: 1.0e-6      # Convergence tolerance
+  max_iter: 1000   # Maximum iterations
+
+methods:
+  optimization: 
+    type: grid_search
+  
+  integration:
+    type: quadrature
+    order: 5
+  
+  shocks:
+    income:
+      distribution: normal
+      parameters:
+        loc: 0.0
+        scale: $sigma
+  
+  compilation:
+    jit: true
+    parallel: true
+  
+  grid:
+    type: linspace  # Default grid type is linspace (formerly uniform)
+
+functions:
+  utility:
+    expr: "consumption**(1-$gamma)/(1-$gamma) if $gamma != 1 else log(consumption)"
+    description: "Utility function"
+  
+  marginal_utility:
+    expr: "consumption**(-$gamma)"
+    description: "Marginal utility function"
+  
+  budget_constraint:
+    expr: "assets*(1+$r) + income - next_assets"
+    description: "Budget constraint"
+  
+  labor_income:
+    expr: "$w * ability * hours"
+    description: "Labor income function"
+
+state_space:
+  # Example 1: Simple flat list for a single dimension
+  simple_flat:
+    dimensions: ["assets"]
+    grid: [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0]
+  
+  # Example 2: Integer range specification
+  integer_range:
+    dimensions: ["period"]
+    grid:
+      start: 0
+      stop: 10
+      step: 1
+  
+  # Example 3: Multi-dimensional grid with separate specs for each dimension
+  assets_income:
+    dimensions: ["assets", "income"]
+    grid:
+      assets: [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+      income: [-0.5, -0.2, 0.0, 0.2, 0.5]
+  
+  # Example 4: Mixed grid specifications
+  mixed_grid:
+    dimensions: ["assets", "age"]
+    grid:
+      assets: [0.0, 0.1, 0.5, 1.0, 5.0, 10.0]  # Explicit list
+      age:                                      # Integer range
+        start: 20
+        stop: 65
+        step: 5
+  
+  # Example 5: Custom tensor grid without mesh creation
+  no_mesh:
+    dimensions: ["x", "y"]
+    grid:
+      x: [0.0, 1.0, 2.0]
+      y: [0.0, 0.5, 1.0]
+    methods:
+      no_mesh: true  # v1.6: replaced create_mesh: false with no_mesh: true
+  
+  # Example 6: Standard algorithmic grid generation
+  algorithmic:
+    dimensions: ["savings"]
+    methods:
+      grid:
+        type: [default_grid]  # v1.6: Reference to default_grid method
+        min: 0.0
+        max: 100.0
+        points: 20
+  
+  # Example 7: Chebyshev nodes for better interpolation
+  chebyshev_grid:
+    dimensions: ["wealth"]
+    methods:
+      grid:
+        type: chebyshev
+        min: 0.1
+        max: 50.0
+        points: 15
+  
+  # Example 8: Enumeration for categorical variables
+  categorical:
+    dimensions: ["employment"]
+    methods:
+      grid:
+        type: list  # v1.6: enum → list
+        values: ["unemployed", "part_time", "full_time"]
+  
+  # Example 9: Logarithmic spacing for improved resolution at lower values
+  log_spaced:
+    dimensions: ["capital"]
+    methods:
+      grid:
+        type: geomspace  # v1.6: logspace → geomspace
+        min: 0.01
+        max: 100.0
+        points: 25
+        base: 10
+  
+  # Example 10: Geometric spacing (alternative way to get log-like spacing)
+  geometric:
+    dimensions: ["human_capital"]
+    methods:
+      grid:
+        type: geometric
+        min: 0.1
+        max: 10.0
+        points: 15
+        growth_factor: 1.2
+  
+  # Example 11: Explicit numpy array using expression
+  numpy_expression:
+    dimensions: ["shock"]
+    grid:
+      type: expression
+      expression: "np.exp(np.linspace(np.log(0.1), np.log(5.0), 10))"
+  
+  # Example 12: Multi-dimensional grid with transformation
+  transformed_grid:
+    dimensions: ["productivity", "experience"]
+    grid:
+      productivity: [0.5, 0.8, 1.0, 1.2, 1.5]
+      experience: [0, 5, 10, 20, 30, 40]
+    methods:
+      transform:
+        productivity: "np.log(productivity)"
+  
+  # Example 13: Full combined example
+  lifecycle_model:
+    dimensions: ["age", "assets", "productivity"]
+    grid:
+      age:
+        start: 25
+        stop: 85
+        step: 5
+      assets: [0.0, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0]
+      productivity:
+        type: chebyshev
+        min: 0.2
+        max: 3.0
+        points: 7
+    methods:
+      no_mesh: false  # v1.6: explicit flag instead of create_mesh: true
+      transform:
+        assets: "np.log1p(assets)"  # log(1+x) transformation for better interpolation
+
+decision_space:
+  # Example 1: Simple consumption choice
+  consumption:
+    dimensions: ["consumption"]
+    methods:
+      grid:
+        type: linspace  # v1.6: uniform → linspace
+        min: 0.01
+        max: 30.0
+        points: 300
+  
+  # Example 2: Multiple decision variables
+  work_save:
+    dimensions: ["labor_supply", "savings"]
+    grid:
+      labor_supply: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]  # Part-time to full-time
+      savings:                                       # Algorithmic grid
+        type: linspace  # v1.6: uniform → linspace
+        min: 0.0
+        max: 50.0
+        points: 50 

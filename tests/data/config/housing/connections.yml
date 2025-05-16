@@ -1,0 +1,47 @@
+# Housing Model Connections Configuration
+# ========================================
+# This file defines all connections between stages in the housing rental model,
+# separating connection topology from stage definitions
+
+# Intra-period connections
+intra_period:
+  # FORWARD CONNECTIONS
+  # Owner Housing to Owner Consumption (forward)
+  - source: "OWNH"
+    target: "OWNC"
+    direction: "forward"
+    source_perch_attr: "cntn"
+    target_perch_attr: "arvl"
+    periods: "all"  # Apply to all periods
+    mapping:
+      H_nxt: "H_nxt"
+      y: "y"
+      w_own: "w"
+  
+  # BACKWARD CONNECTIONS
+  # Owner Consumption to Owner Housing (backward)
+  - source: "OWNC"
+    target: "OWNH"
+    direction: "backward"
+    source_perch_attr: "arvl"
+    target_perch_attr: "cntn"
+    periods: "all"
+    # No explicit mapping needed for backward connection
+    # It will maintain the proper dimensions
+
+# Inter-period connections
+inter_period:
+  # Owner Consumption to next-period Owner Housing (forward)
+  - source: "OWNC"
+    target: "OWNH"
+    direction: "forward"
+    source_perch_attr: "cntn"
+    target_perch_attr: "arvl"
+    source_periods: [0, 1]  # Explicit period indices for source
+    target_periods: [1, 2]  # Explicit period indices for target
+    mapping:
+      a_nxt: "a"
+      H_nxt: "H"
+      y: "y_pre"  # Current shock becomes previous shock in next period
+  
+## also need to backward inte-period mover here 

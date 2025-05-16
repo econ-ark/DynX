@@ -1,0 +1,30 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="dynx_runner",
+    version="0.1.0",
+    description="A package for parameter sweeping and optimization of economic models",
+    author="ModCraft Team",
+    packages=find_packages(),
+    install_requires=[
+        "numpy>=1.20.0",
+        "pandas>=1.3.0",
+        "matplotlib>=3.4.0",
+    ],
+    extras_require={
+        "mpi": ["mpi4py>=3.0.0"],
+        "test": ["pytest>=6.0.0"],
+    },
+    python_requires=">=3.8",
+    classifiers=[
+        "Development Status :: 3 - Alpha",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Topic :: Scientific/Engineering :: Mathematics",
+        "Topic :: Scientific/Engineering :: Economics",
+    ],
+) 

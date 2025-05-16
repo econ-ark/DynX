@@ -1,0 +1,271 @@
+# Home-Owner Consumption Choice Stage [OWNC] Configuration
+# =================================================
+# This configuration implements the consumption decision stage for home owners
+# Based on the housing-renting model with discrete choice
+# Uses master file for parameter references
+
+# Reference to master configuration file
+master_file: "housing_renting_master.yml"
+
+# Stage definition
+# -----------------
+stage:
+  name: "OwnerConsumptionChoice"
+  is_portable: true
+  method: "EGM"  # Endogenous Grid Method
+  kind: "sequential"  # Stage kind (sequential vs branching)
+
+  #################
+  # 1) Model-Level
+  #################
+  # Parameters are referenced from the master file
+  parameters:
+    beta: ["beta"]            # Discount factor from master
+    r: 1.05                   # Interest rate OVERRIDING master value (1.04)
+    gamma: ["gamma"]          # Risk aversion coefficient from master
+    alpha: ["alpha"]          # Consumption weight in utility from master
+    kappa: ["kappa"]          # Housing service scaling factor from master
+    iota: ["iota"]            # Housing service constant from master
+
+  # Settings are referenced from the master file
+  settings:
+    tol: ["tol"]                # Convergence tolerance from master
+    max_iter: ["max_iter"]      # Maximum iterations from master
+    
+    # Grid parameters
+    a_nxt_min: ["a_nxt_min"]    # From master
+    a_nxt_max: ["a_nxt_max"]    # From master
+    a_nxt_points: ["a_nxt_points"] # From master
+    
+    w_min: ["w_min"]            # From master
+    w_max: ["w_max"]            # From master 
+    w_points: ["w_points"]      # From master
+    
+    H_min: ["H_min"]            # From master
+    H_max: ["H_max"]            # From master
+    H_points: ["H_points"]      # From master
+
+  methods:
+    optimization: "EGM"
+    simulation: "Histogram"
+    integration_method: "discretize"
+    compilation: 'eval'             
+    default_grid: 'linspace'        
+
+  ###################
+  # 2) .math Section
+  ###################
+  math:
+    functions:
+      # Three different ways to inherit functions from master file:
+      
+      # 1. Bracket notation for inheritance (explicit)
+      u_general: ["u_general"]                  # Bracket notation inheritance
+      
+      # 2. Direct reference inheritance (simplest)
+      housing_utility: housing_utility          # Direct reference inheritance
+      
+      # 3. Named reference with inherit property (for modifications)
+      standard_interest:
+        inherit: "standard_interest"            # Property-based inheritance
+        description: "Standard interest calculation (inherited)"
+      
+      # 4. Direct inheritance with inherit: true
+      identity_mapping:
+        inherit: true                           # Legacy inherit property
+        description: "Identity mapping function (inherited)"
+      
+      # Override functions from master with local modifications
+      uc_general:
+        inherit: "uc_general"                   # Inherit but override expression
+        expr: "alpha/(c + 1e-10)"               # Override with local modification
+        description: "Modified marginal utility with numerical stability"
+      
+      # Functions that build on master patterns
+      egm_consumption:
+        inherit: "egm_consumption"              # Inherit but override expression
+        expr: "alpha/(beta*lambda_v)"           # Adapt to local variable names
+        description: "Adapted EGM consumption formula for local variables"
+      
+      # Purely local functions (no inheritance)
+      u_func:
+        expr: "alpha*log(c) + (1-alpha)*log(kappa*(H_nxt+iota))"
+        description: "Stage-specific utility function for housing"
+      
+      asset_interest:
+        expr: "(1+r)*a"                         # Uses local r = 1.05, not master r = 1.04
+        description: "Stage-specific interest earned on assets"
+      
+      wealth_constraint:
+        expr: "a_nxt >= 0"
+        description: "Local non-negative wealth constraint"
+      
+      # Transition functions
+      g_av:
+        expr: "w = w"
+        description: "Stage-specific identity mapping"
+      
+      g_ve:
+        expr: "a_nxt = w - c"
+        description: "Stage-specific budget constraint"
+      
+      # Complex operations
+      egm_operations:
+        c_egm: "alpha/(beta*lambda_e)"          # Uses pattern from egm_consumption
+        m_egm: "c_egm + a_nxt"
+        lambda_v_egm: "alpha/c_egm"
+        vlu_v_egm: "alpha*log(c_egm) + (1-alpha)*log(kappa*(H_nxt+iota)) + beta*vlu_e"
+        description: "Stage-specific EGM operations"
+        compilation: "eval"
+
+    constraints:
+      budget:
+        expr: "c <= w"
+        description: "Budget constraint (no borrowing)"
+      
+      positive_consumption:
+        expr: "c > 0"
+        description: "Consumption must be positive"
+
+    state_space:
+      arvl:
+        description: "Arrival perch state space (housing, income, cash-on-hand)"
+        dimensions: ["H_nxt", "y", "w"]
+        methods:
+          interp: Linear
+        settings:
+          H_nxt_points: ["H_points"]  # Reference to master
+          y_points: 10
+          w_min: ["w_min"]            # Reference to master
+          w_max: ["w_max"]            # Reference to master
+          w_points: ["w_points"]      # Reference to master
+        grid:
+          H_nxt:
+            type: "linspace"
+            min: ["H_min"]            # Reference to master
+            max: ["H_max"]            # Reference to master
+            points: ["H_points"]      # Reference to master
+          y:
+            type: "linspace"
+            min: 0.5
+            max: 2.0
+            points: 10
+          w:
+            type: "linspace"
+            min: ["w_min"]            # Reference to master
+            max: ["w_max"]            # Reference to master
+            points: ["w_points"]      # Reference to master
+      
+      dcsn:
+        description: "Decision perch state space (housing, income, cash-on-hand)"
+        dimensions: ["H_nxt", "y", "w"]
+        methods:
+          interp: Linear
+        settings:
+          H_nxt_points: ["H_points"]  # Reference to master
+          y_points: 10
+          w_min: ["w_min"]            # Reference to master
+          w_max: ["w_max"]            # Reference to master
+          w_points: ["w_points"]      # Reference to master
+        grid:
+          H_nxt:
+            type: "linspace"
+            min: ["H_min"]            # Reference to master
+            max: ["H_max"]            # Reference to master
+            points: ["H_points"]      # Reference to master
+          y:
+            type: "linspace"
+            min: 0.5
+            max: 2.0
+            points: 10
+          w:
+            type: "linspace"
+            min: ["w_min"]            # Reference to master
+            max: ["w_max"]            # Reference to master
+            points: ["w_points"]      # Reference to master
+      
+      cntn:
+        description: "Continuation perch state space (next-period assets, income, housing)"
+        dimensions: ["a_nxt", "y", "H_nxt"]
+        methods:
+          interp: Linear
+        settings:
+          a_nxt_min: ["a_nxt_min"]      # Reference to master
+          a_nxt_max: ["a_nxt_max"]      # Reference to master
+          a_nxt_points: ["a_nxt_points"] # Reference to master
+          H_nxt_points: ["H_points"]    # Reference to master
+          y_points: 10
+        grid:
+          a_nxt:
+            type: "linspace"
+            min: ["a_nxt_min"]          # Reference to master
+            max: ["a_nxt_max"]          # Reference to master
+            points: ["a_nxt_points"]    # Reference to master
+          y:
+            type: "linspace"
+            min: 0.5
+            max: 2.0
+            points: 10
+          H_nxt:
+            type: "linspace"
+            min: ["H_min"]              # Reference to master
+            max: ["H_max"]              # Reference to master
+            points: ["H_points"]        # Reference to master
+
+    # Parameters section that uses references to parameters that should be 
+    # resolved from stage first, then master
+    parameters:
+      interest_rate: ["r"]              # Should resolve to stage value (1.05)
+      discount: ["beta"]                # Should resolve to master value
+
+# Movers section
+movers:
+  # Arrival to Decision (Identity mapping)
+  arvl_to_dcsn:
+    type: "forward"
+    source: "arvl"
+    target: "dcsn"
+    functions:
+      - g_av
+    operator:
+      method: simulation
+    description: "Arrival->Decision (Identity mapping)"
+    inherit_parameters: true
+    inherit_settings: true
+    methods:
+      simulation
+  
+  # Decision to Continuation (Consumption choice)
+  dcsn_to_cntn:
+    type: "forward"
+    source: "dcsn"
+    target: "cntn"
+    functions:
+      - g_ve
+    operator:
+      method: optimization
+      objective: u_func
+    description: "Decision->Continuation with budget constraint"
+    inherit_parameters: true
+    inherit_settings: true
+    methods:
+      simulation
+    required_variables:
+      - c
+
+  # Continuation to Decision (EGM backward step)
+  cntn_to_dcsn:
+    type: "backward"
+    source: "cntn"
+    target: "dcsn"
+    functions:
+      - egm_operations
+    operator:
+      method: EGM
+    description: "Continuation->Decision backwards using EGM"
+    required_grids:
+      - cntn.a_nxt
+    inherit_parameters: true
+    inherit_settings: true
+    methods:
+      EGM 

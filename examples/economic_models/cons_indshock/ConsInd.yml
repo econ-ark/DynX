@@ -1,0 +1,287 @@
+# Consumption Savings IID Model Configuration v1.6.0
+# =================================================
+# This configuration demonstrates the structure in v1.6.0 with clean separation between:
+# - .math: Pure algebraic definitions (functions, constraints, domains)
+# - Top-level elements: parameters, settings, methods, shocks, states, etc.
+# Using streamlined syntax with consistent [ref] pattern and no redundant fields
+
+# Stage definition
+# -----------------
+stage:
+  name: "ConsumptionSavingsIID"
+  is_portable: true
+  method: "EGM"  # Endogenous Grid Method
+  kind: "sequential"  # Stage kind (sequential vs branching)
+
+  #################
+  # 1) Model-Level
+  #################
+  parameters:
+    beta: 0.9            # Discount factor
+    r: 1.04               # Interest rate
+    sigma: 0.1            # Standard deviation of income shock
+    gamma: 2.0           # Risk aversion coefficient (CRRA utility)
+    sigma_y: 0.01          # Standard deviation of income shock
+    mu: 1.0               # Mean of income shock
+
+  settings:
+    tol: 1.0e-6           # Convergence tolerance
+    max_iter: 1000        # Maximum iterations
+    N_shock: 7            # Number of shock grid points
+    n_grid_points: 100    # Number of grid points for all grids
+    
+    # Grid parameters - ensure all are numeric
+    a_min: 0.01           # Minimum asset value
+    a_max: 10.0        # Maximum asset value
+    a_points: 4000         # Number of asset grid points
+    
+    m_min: 1.0e-500            # Minimum cash-on-hand value
+    m_max: 5.0           # Maximum cash-on-hand value
+    m_points: 4000         # Number of cash-on-hand grid points
+    
+    a_nxt_min: 0.01          # Minimum next-period asset value
+    a_nxt_max: 10.0       # Maximum next-period asset value
+    a_nxt_points: 4000     # Number of next-period asset grid points
+    prob_zero_income: 0.005  # Probability of zero income
+    zero_income_value: 1.0e-102  # Value of income when zero income occurs
+
+    #shock parameters
+    width: 3.0
+
+
+  methods:
+    optimization: "EGM"
+    simulation: "Histogram"
+    integration_method: "discretize"
+    shock_method: "normal"         # v1.6: replaces shock_distribution and shock_generation
+    compilation: 'eval'            # v1.6: replaces function_compilation
+    default_grid: 'linspace'       # v1.6: replaces grid_generation
+
+  ###################
+  # 2) .math Section
+  ###################
+  math:
+    functions:
+      # These functions define the mathematical structure of the model
+      u_func:
+        expr: "u = c**(1 - gamma) / (1 - gamma)"
+        description: "CRRA utility function"
+      
+      uc_inv_func:
+        expr: "c = value ** (-1/gamma)"
+        description: "Inverse utility function"
+      
+      uc_func:
+        expr: "c**(-gamma)"                 # Removed 'u_c =', Changed ^ to **
+        description: "Marginal utility function"
+      
+      # CDC transition functions
+      g_a_to_v:
+        expr: "m = y + a*r"
+        description: "Maps assets and income shock to cash-on-hand"
+      
+      g_v_to_e:
+        expr: "a_nxt = m - c"
+        description: "Maps cash-on-hand minus consumption to next-period assets"
+      
+      g_e_to_a:
+        expr: "a = a_nxt"    
+        description: "Identity function mapping cntn state to next arvl state"
+      
+      g_e_to_v:
+        expr: "m = a_nxt + c"
+        description: "Inverse mapping from cntn to dcsn state"
+      
+      # Value function definitions
+      Q_func:
+        expr: "q_val = u_func(c=c_in) + beta*vlu_cntn"
+        description: "Bellman equation reward function"
+      
+      q_func:
+        expr: "u_c = beta*mvlu_cntn_val" # Note: This uses u_c, might relate to NameError if uc_func isn't aliased correctly
+        description: "First-order condition for optimal consumption"
+      
+      q_inv_func:
+        expr: "c = uc_inv_func(value=beta*r*lambda_cntn)"
+        description: "Inverse Bellman equation using uc_inv_func"
+      T_Carroll:
+        expr: "m_egm = g_e_to_v(c=q_inv_func(lambda_cntn=lambda_cntn), a_nxt=a_nxt)" # Reverted to keywords
+        description: "Carroll Operation, gives you the arvl state"
+      T_Coleman:
+        expr: "c_egm = q_inv_func(lambda_cntn=lambda_cntn)" # Reverted to keywords
+        description: "Coleman Operation, gives you the policy on the endogenous grid"
+      T_Stachurski:
+        expr: "lambda_arvl_egm =uc_func(c=q_inv_func(lambda_cntn=lambda_cntn))" # Reverted to keywords, using uc_func explicitly
+        description: "Stachurski Operation, gives you the marginal utility of consumption"
+      T_Bellman:
+        expr: "vlu_arvl_egm = Q_func(c_in=q_inv_func(lambda_cntn=lambda_cntn), vlu_cntn=vlu_cntn)" # Reverted to keywords
+        description: "Bellman Operation, gives you the value function"
+
+    constraints:
+      budget:
+        expr: "c <= m"
+        description: "Budget constraint (no borrowing)"
+      
+      positive_consumption:
+        expr: "c > 0"
+        description: "Consumption must be positive"
+
+    # Domains removed as per refactoring plan
+
+    ##################
+    # 4) Shocks
+    ##################
+    shocks:
+      income_shock:
+        description: "Income shock"
+        dimensions: ["y"] 
+        methods:
+          shock_method: [shock_method]      # v1.6: reference to stage method
+          integration_method: [integration_method]
+        settings:
+          n_points: N_shock
+          width: width
+          mean: mu
+          std: sigma
+          prob_zero_income: prob_zero_income
+          zero_income_value: zero_income_value
+        parameters:
+          mean: mu
+          std: sigma
+
+    ##################
+    # 5) States
+    ##################
+    state_space:
+      arvl:
+        description: "Arrival perch dimension (assets)"
+        dimensions: ["a"]  # Just a simple list of dimension names
+        methods:
+          interp: Linear                 # v1.6: replaces interpolation
+        settings:
+          a_min: a_min
+          a_max: a_max
+          a_points: a_points
+        grid:
+          a:
+            type: "linspace"            # v1.6: references the stage method
+            min: a_min
+            max: a_max
+            points: a_points
+      
+      dcsn:
+        description: "Decision perch dimension (cash-on-hand)"
+        dimensions: ["m"]  # Just a simple list of dimension names
+        methods:
+          interp: Linear                 # v1.6: replaces interpolation
+        settings:
+          m_min: m_min
+          m_max: m_max
+          m_points: m_points
+        grid:
+          m:
+            type: "linspace"            # v1.6: references the stage method
+            min: m_min
+            max: m_max
+            points: m_points
+      
+      cntn:
+        description: "Continuation perch dimension (next-period assets)"
+        dimensions: ["a_nxt"]  # Just a simple list of dimension names
+        methods:
+          interp: Linear                  # v1.6: replaces interpolation
+        settings:
+          a_nxt_min: a_nxt_min
+          a_nxt_max: a_nxt_max
+          a_nxt_points: a_nxt_points
+        grid:
+          a_nxt:
+            type: "linspace"            # v1.6: references the stage method
+            min: a_nxt_min
+            max: a_nxt_max
+            points: a_nxt_points
+
+
+#######################
+# 7) Movers
+# Contains the objects needed for the mover model
+##################
+movers:
+  arvl_to_dcsn:
+    type: "forward"
+    source: "arvl"
+    target: "dcsn"
+    functions:
+      - g_a_to_v
+    operator:
+      method: simulation
+    shocks:
+      - income_shock
+    description: "Arrival->Decision with shock realization"
+    inherit_parameters: true  # Inherit all parameters from stage
+    inherit_settings: true    # Inherit all settings from stage
+    methods:
+      simulation
+          # declare methods here or if a sub key requires a method, also put it here
+    
+
+  dcsn_to_cntn:
+    type: "forward"
+    source: "dcsn"
+    target: "cntn"
+    functions:
+      - g_v_to_e
+    operator:
+      method: optimization
+      objective: Q_func
+    inherit_parameters: true  # Inherit all parameters from stage
+    inherit_settings: true    # Inherit all settings from stage
+    methods:
+      simulation
+    description: "Decision->Continuation with optimization"
+
+  cntn_to_dcsn:
+    type: "backward"
+    source: "cntn"
+    target: "dcsn"
+    functions:
+      - g_e_to_v
+      - Q_func
+      - q_func
+      - uc_inv_func
+      - q_inv_func
+      - uc_func
+      - T_Carroll
+      - T_Coleman
+      - T_Stachurski
+      - T_Bellman
+      - u_func
+    operator:
+      method: EGM
+    description: "Continuation->Decision backwards"
+    required_grids:
+      - cntn
+      - dcsn
+    inherit_parameters: true  # Inherit all parameters from stage
+    inherit_settings: true    # Inherit all settings from stage
+    methods:
+      EGM
+
+  dcsn_to_arvl:
+    type: "backward"
+    source: "dcsn"
+    target: "arvl"
+    functions:
+      - g_a_to_v
+    operator:
+      method: integration
+    shocks:
+      - income_shock
+    methods:
+      integration 
+    description: "Decision->Arrival backwards with integration" 
+    inherit_parameters: true  # Inherit all parameters from stage
+    inherit_settings: true    # Inherit all settings from stage
+    required_grids:
+      - dcsn
+      - arvl

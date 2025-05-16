@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynx"
+version = "0.1.0"
+description = "Dynamic Economic Modeling Framework"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "ModCraft Team"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Economics",
+]
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "matplotlib>=3.4.0",
+    "networkx>=2.6.0",
+    "pyyaml>=5.1.0",
+]
+
+[project.optional-dependencies]
+heptapodx = [
+    "sympy>=1.7.0",
+    "numba>=0.53.0",
+]
+mpi = [
+    "mpi4py>=3.0.0",
+]
+test = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.12.0",
+]
+dev = [
+    "black>=21.5b2",
+    "isort>=5.9.1",
+    "mypy>=0.800",
+    "flake8>=3.9.0",
+]
+all = [
+    "dynx[heptapodx,mpi,test,dev]",
+]
+
+[tool.setuptools]
+packages = ["dynx"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100

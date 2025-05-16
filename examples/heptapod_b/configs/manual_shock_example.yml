@@ -1,0 +1,99 @@
+# Example configuration demonstrating manual shock specification in Heptapod-B
+
+# Master section (for parameter reference example)
+parameters:
+  Pi_income:  # Transition probability matrix for income shock
+    - [0.95, 0.05, 0.00]
+    - [0.10, 0.85, 0.05]
+    - [0.00, 0.25, 0.75]
+  income_levels: [0.3, 1.0, 2.0]  # Income shock values
+  cost_shock_values: [-0.2, 0.0, 0.3]  # Cost shock values
+  cost_shock_probs: [0.25, 0.50, 0.25]  # Cost shock probabilities
+
+# Stage configuration
+stage:
+  name: ManualShockExample
+  description: "Example model with manually specified shock processes"
+  
+  parameters:
+    beta: 0.96  # Discount factor
+    gamma: 2.0  # Risk aversion
+  
+  settings:
+    periods: 50
+  
+  state_space:
+    a: {grid_type: linspace, n_points: 20, min: 0, max: 50}  # Asset grid
+    z: {shock: income_shock}  # Income shock state
+    eps: {shock: cost_shock}  # Cost shock state
+  
+  # Functions and constraints outside math section
+  functions:
+    utility:
+      expr: "c**(1-gamma)/(1-gamma)"
+    
+    budget_constraint:
+      expr: "a_prime <= (1+r)*a + w*z - c"
+  
+  # Math section containing shocks
+  math:
+    # Different types of shock specifications
+    shocks:
+      # 1. Direct specification of a Markov process
+      income_shock:
+        description: "Manually specified income shock (Markov)"
+        dimension: "z"
+        methods:
+          method: "manual"  # Specify manual shock creation method
+          shock_method: "DiscreteMarkov"  # Type of process
+        # Provide values directly
+        transition_matrix: 
+          - [0.9, 0.1, 0.0]
+          - [0.1, 0.8, 0.1]
+          - [0.0, 0.2, 0.8]
+        values: [0.5, 1.0, 1.5]
+        labels: ["low", "medium", "high"]
+      
+      # 2. Using parameter references from master config
+      income_ref_shock:
+        description: "Income shock using parameter references"
+        dimension: "z_ref"
+        methods:
+          method: "manual"
+          shock_method: "DiscreteMarkov"
+        transition_matrix: ["Pi_income"]  # Reference to master config
+        values: ["income_levels"]  # Reference to master config
+      
+      # 3. IID shock specification
+      cost_shock:
+        description: "IID cost shock"
+        dimension: "eps"
+        methods:
+          method: "manual"
+          shock_method: "IID"  # IID process
+        values: [-0.1, 0.0, 0.1]
+        probabilities: [0.2, 0.6, 0.2]  # Optional, uniform distribution assumed if omitted
+      
+      # 4. IID shock with parameter references
+      cost_ref_shock:
+        description: "IID cost shock using parameter references" 
+        dimension: "eps_ref"
+        methods:
+          method: "manual"
+          shock_method: "IID"
+        values: ["cost_shock_values"]
+        probabilities: ["cost_shock_probs"]
+
+# You can run this example using:
+# from heptapod_b.core.api import initialize_model
+# import yaml
+# 
+# with open("manual_shock_example.yml", "r") as f:
+#     config = yaml.safe_load(f)
+# 
+# stage_model, _, _ = initialize_model(config)
+# 
+# # Access the shock process:
+# income_shock = stage_model.num["shocks"]["income_shock"]
+# print(income_shock["values"])  # [0.5, 1.0, 1.5]
+# print(income_shock["transition_matrix"]) 

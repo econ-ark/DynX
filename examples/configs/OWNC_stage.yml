@@ -1,0 +1,236 @@
+# Home-Owner Consumption Choice Stage [OWNC] Configuration
+# =================================================
+# This configuration implements the consumption decision stage for home owners
+# Based on the housing-renting model with discrete choice
+
+# Stage definition
+# -----------------
+stage:
+  name: "OwnerConsumptionChoice"
+  is_portable: true
+  method: "EGM"  # Endogenous Grid Method
+  kind: "sequential"  # Stage kind (sequential vs branching)
+
+  #################
+  # 1) Model-Level
+  #################
+  parameters:
+    beta: 0.95            # Discount factor
+    r: 1.04               # Interest rate
+    gamma: 2.0            # Risk aversion coefficient for utility
+    alpha: 0.7            # Consumption weight in utility
+    kappa: 1.0            # Housing service scaling factor
+    iota: 0.001           # Housing service constant
+
+  settings:
+    tol: 1.0e-6           # Convergence tolerance
+    max_iter: 1000        # Maximum iterations
+    
+    # Grid parameters
+    a_nxt_min: 0.01       # Minimum next-period asset value
+    a_nxt_max: 10.0       # Maximum next-period asset value
+    a_nxt_points: 100     # Number of next-period asset grid points
+    
+    w_min: 0.01           # Minimum cash-on-hand
+    w_max: 20.0           # Maximum cash-on-hand
+    w_points: 100         # Number of cash-on-hand grid points
+    
+    H_min: 0.0            # Minimum housing value
+    H_max: 5.0            # Maximum housing value
+    H_points: 10          # Number of housing grid points
+
+  methods:
+    optimization: "EGM"
+    simulation: "Histogram"
+    integration_method: "discretize"
+    compilation: 'eval'             
+    default_grid: 'linspace'        
+
+  ###################
+  # 2) .math Section
+  ###################
+  math:
+    functions:
+      # Utility functions
+      u_func:
+        expr: "alpha*log(c) + (1-alpha)*log(kappa*(H_nxt+iota))"
+        description: "Log utility for consumption and housing"
+      
+      uc_func:
+        expr: "alpha/c"
+        description: "Marginal utility of consumption"
+      
+      uc_inv_func:
+        expr: "alpha/value"
+        description: "Inverse marginal utility of consumption"
+      
+      # Joint calculation of utility and marginal utility
+      util_and_mutil:
+        util: "alpha*log(c) + (1-alpha)*log(kappa*(H_nxt+iota))"
+        mutil: "alpha/c"
+        description: "Joint calculation of utility and marginal utility"
+        compilation: "eval"
+      
+      # Transition functions
+      g_av:
+        expr: "w = w"
+        description: "Identity mapping from arrival to decision (no state change)"
+      
+      g_ve:
+        expr: "a_nxt = w - c"
+        description: "Budget constraint: maps cash-on-hand and consumption to next-period assets"
+      
+      # EGM operations
+      egm_operations:
+        c_egm: "alpha/(beta*lambda_e)"
+        m_egm: "c_egm + a_nxt"
+        lambda_v_egm: "alpha/c_egm"
+        vlu_v_egm: "alpha*log(c_egm) + (1-alpha)*log(kappa*(H_nxt+iota)) + beta*vlu_e"
+        description: "Joint calculation of all EGM operations"
+        compilation: "eval"
+
+    constraints:
+      budget:
+        expr: "c <= w"
+        description: "Budget constraint (no borrowing)"
+      
+      positive_consumption:
+        expr: "c > 0"
+        description: "Consumption must be positive"
+
+    state_space:
+      arvl:
+        description: "Arrival perch state space (housing, income, cash-on-hand)"
+        dimensions: ["H_nxt", "y", "w"]
+        methods:
+          interp: Linear
+        settings:
+          H_nxt_points: ["H_points"]
+          y_points: 10
+          w_min: ["w_min"]
+          w_max: ["w_max"]
+          w_points: ["w_points"]
+        grid:
+          H_nxt:
+            type: "linspace"
+            min: ["H_min"]
+            max: ["H_max"]
+            points: ["H_points"]
+          y:
+            type: "linspace"
+            min: 0.5
+            max: 2.0
+            points: 10
+          w:
+            type: "linspace"
+            min: ["w_min"]
+            max: ["w_max"]
+            points: ["w_points"]
+      
+      dcsn:
+        description: "Decision perch state space (housing, income, cash-on-hand)"
+        dimensions: ["H_nxt", "y", "w"]
+        methods:
+          interp: Linear
+        settings:
+          H_nxt_points: ["H_points"]
+          y_points: 10
+          w_min: ["w_min"]
+          w_max: ["w_max"]
+          w_points: ["w_points"]
+        grid:
+          H_nxt:
+            type: "linspace"
+            min: ["H_min"]
+            max: ["H_max"]
+            points: ["H_points"]
+          y:
+            type: "linspace"
+            min: 0.5
+            max: 2.0
+            points: 10
+          w:
+            type: "linspace"
+            min: ["w_min"]
+            max: ["w_max"]
+            points: ["w_points"]
+      
+      cntn:
+        description: "Continuation perch state space (next-period assets, income, housing)"
+        dimensions: ["a_nxt", "y", "H_nxt"]
+        methods:
+          interp: Linear
+        settings:
+          a_nxt_min: ["a_nxt_min"]
+          a_nxt_max: ["a_nxt_max"]
+          a_nxt_points: ["a_nxt_points"]
+          H_nxt_points: ["H_points"]
+          y_points: 10
+        grid:
+          a_nxt:
+            type: "linspace"
+            min: ["a_nxt_min"]
+            max: ["a_nxt_max"]
+            points: ["a_nxt_points"]
+          y:
+            type: "linspace"
+            min: 0.5
+            max: 2.0
+            points: 10
+          H_nxt:
+            type: "linspace"
+            min: ["H_min"]
+            max: ["H_max"]
+            points: ["H_points"]
+
+# Movers section
+movers:
+  # Arrival to Decision (Identity mapping)
+  arvl_to_dcsn:
+    type: "forward"
+    source: "arvl"
+    target: "dcsn"
+    functions:
+      - g_av
+    operator:
+      method: simulation
+    description: "Arrival->Decision (Identity mapping)"
+    inherit_parameters: true
+    inherit_settings: true
+    methods:
+      simulation
+  
+  # Decision to Continuation (Consumption choice)
+  dcsn_to_cntn:
+    type: "forward"
+    source: "dcsn"
+    target: "cntn"
+    functions:
+      - g_ve
+    operator:
+      method: optimization
+      objective: u_func
+    description: "Decision->Continuation with budget constraint"
+    inherit_parameters: true
+    inherit_settings: true
+    methods:
+      simulation
+    required_variables:
+      - c
+
+  # Continuation to Decision (EGM backward step)
+  cntn_to_dcsn:
+    type: "backward"
+    source: "cntn"
+    target: "dcsn"
+    functions:
+      - egm_operations
+    operator:
+      method: EGM
+    description: "Continuation->Decision backwards using EGM"
+    required_grids:
+      - cntn.a_nxt
+    inherit_parameters: true
+    inherit_settings: true
+    methods:
+      EGM 

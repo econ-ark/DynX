@@ -1,0 +1,114 @@
+# Housing Choice Model with Renting - Master Configuration
+# =================================================
+# This is the master configuration file containing shared parameters and settings
+# for the housing-renting model with discrete choice
+
+name: "HousingRentingMaster"
+description: "Master parameter file for housing choice model with renting option"
+version: "1.6.1"
+
+# Global parameters shared across all stages
+parameters:
+  beta: 0.95            # Discount factor
+  r: 1.04               # Interest rate
+  gamma: 2.0            # Risk aversion coefficient for utility
+  alpha: 0.7            # Consumption weight in utility
+  kappa: 1.0            # Housing service scaling factor
+  iota: 0.001           # Housing service constant
+  tau: 0.05             # Transaction cost for housing adjustment
+  P_r: 0.2              # Rental price per unit of housing service
+  
+  # Income shock parameters
+  sigma_y: 0.1          # Standard deviation of income shock
+  mu_y: 1.0             # Mean of income shock
+
+# Global settings shared across all stages
+settings:
+  tol: 1.0e-6           # Convergence tolerance
+  max_iter: 1000        # Maximum iterations
+  
+  # Grid parameters
+  a_min: 0.01           # Minimum asset value
+  a_max: 10.0           # Maximum asset value
+  a_points: 100         # Number of asset grid points
+  
+  H_min: 0.0            # Minimum housing value
+  H_max: 5.0            # Maximum housing value
+  H_points: 10          # Number of housing grid points
+  
+  S_min: 0.0            # Minimum rental service value
+  S_max: 5.0            # Maximum rental service value
+  S_points: 10          # Number of rental service grid points
+  
+  w_min: 0.01           # Minimum cash-on-hand
+  w_max: 20.0           # Maximum cash-on-hand
+  w_points: 100         # Number of cash-on-hand grid points
+  
+  a_nxt_min: 0.01       # Minimum next-period asset value
+  a_nxt_max: 10.0       # Maximum next-period asset value
+  a_nxt_points: 100     # Number of next-period asset grid points
+  
+  # Income shock discretization
+  N_shock: 7            # Number of shock grid points
+  width: 3              # Width of the shock grid in std deviations
+
+# Global methods (these won't be automatically inherited but shown for completeness)
+methods:
+  optimization: "EGM"
+  simulation: "Histogram"
+  integration_method: "discretize"
+  shock_method: "normal"
+  compilation: 'eval'
+  default_grid: 'linspace'
+  upper_envelope: "FUES"
+
+# Common functions that can be inherited by stages
+functions:
+  # Common utility functions
+  log_utility:
+    expr: "log(x)"
+    description: "Natural logarithm utility function"
+  
+  income_process:
+    expr: "y_pre * exp(eps - 0.5*sigma^2)"
+    description: "Log-normal income process"
+
+# Math section with functions that can be inherited by stages
+math:
+  functions:
+    # Common utility and utility-related functions
+    u_general:
+      expr: "alpha*log(c) + (1-alpha)*log(h+iota)"
+      description: "Log utility for consumption and housing"
+    
+    uc_general:
+      expr: "alpha/c"
+      description: "Marginal utility of consumption"
+    
+    uc_inv_general:
+      expr: "alpha/value"
+      description: "Inverse marginal utility of consumption"
+    
+    # Common transition functions
+    identity_mapping:
+      expr: "x = x"
+      description: "Identity mapping (no state change)"
+    
+    budget_constraint:
+      expr: "x_next = (1+r)*a + y - c"
+      description: "Generic budget constraint with interest"
+    
+    # Common utility with housing
+    housing_utility:
+      expr: "(1-alpha)*log(kappa*(h+iota))"
+      description: "Housing component of utility"
+    
+    # Common EGM operations
+    egm_consumption:
+      expr: "alpha/(beta*lambda)"
+      description: "EGM consumption formula"
+    
+    # Interest calculation functions
+    standard_interest:
+      expr: "(1+r)*a"
+      description: "Standard interest calculation" 

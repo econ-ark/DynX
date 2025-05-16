@@ -1,0 +1,46 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usepackage{amsmath}
+
+\begin{document}
+\begin{tikzpicture}[
+    >=stealth,
+    line width=0.8pt,
+    every node/.style={font=\small},
+    forwardarrow/.style={->,color=blue!70!black},
+    backwardarrow/.style={<-,color=red!70!black},
+    nodecircle/.style={circle,draw,minimum size=1.1cm},
+]
+
+% -- Nodes (Perches) --
+\node[nodecircle] (arvl) at (0,0) {\(\mathrm{arvl}\)};
+\node[nodecircle] (dcsn) at (4.5,0) {\(\mathrm{dcsn}\)};
+\node[nodecircle] (cntn) at (9,0) {\(\mathrm{cntn}\)};
+
+% -- Forward and Backward Arrows (Curved) --
+% Forward (top arcs)
+\draw[->, line width=1pt, color=blue!70!black]
+    (arvl) to[out=60,in=120] node[above,yshift=0.2em,midway]
+    {\(\mu \mapsto \mu \circ h_{av}^{-1}\)} (dcsn);
+
+\draw[->, line width=1pt, color=blue!70!black]
+    (dcsns) to[out=60,in=120] node[above,yshift=0.2em,midway]
+    {\(\mu \mapsto \mu \circ h_{ve}^{-1}\)} (cntn);
+
+% Backward (bottom arcs)
+\draw[<-, line width=1pt, color=red!70!black]
+    (arvl) to[out=-60,in=-120] node[below,yshift=-0.3em,midway]
+    {\(\mathcal{T}^{ad}\)} (dcsn);
+
+\draw[<-, line width=1pt, color=red!70!black]
+    (dcsn) to[out=-60,in=-120] node[below,yshift=-0.3em,midway]
+    {\(\mathcal{T}^{cd}\)} (cntn);
+
+
+
+% -- Extra label at bottom
+\node[align=left] (forwardLabel) at (4.5,2.5)  {\textit{Forward movers}};
+\node[align=left] (backwardLabel) at (4.5,-2.2) {\textit{Backward movers}};
+
+\end{tikzpicture}
+\end{document}

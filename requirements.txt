@@ -1,0 +1,25 @@
+# ModCraft package requirements
+# Python version
+# Requires Python 3.13
+# python>=3.13.0
+
+# Core dependencies
+networkx>=3.4.0  # Updated for Python 3.13 compatibility
+numpy>=2.0.0  # Updated for Python 3.13 compatibility
+pyyaml>=6.0
+matplotlib>=3.9.0  # Updated for Python 3.13 compatibility
+
+# Additional dependencies used in notebooks and examples
+scipy>=1.12.0  # Updated for Python 3.13 compatibility
+jupyter>=1.0.0
+notebook>=7.0.0  # Updated for Python 3.13 compatibility
+ipykernel>=6.28.0  # Updated for Python 3.13 compatibility
+
+# Optional dependencies for better notebook experience
+ipywidgets>=8.1.0  # Updated for Python 3.13 compatibility
+jupytext>=1.15.0  # Updated for Python 3.13 compatibility
+
+# Development dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=24.0.0 
