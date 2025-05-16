@@ -7,7 +7,7 @@ dynamic models. It combines functional recursion with a practical
 graph representation of what would otherwise be an infinite-dimensional
 problem.
 
-Unlike general graph libraries (e.g. *TensorFlow*), Dyn-X stores **both**
+Unlike general graph libraries (e.g. *TensorFlow*), Dyn-X represents **both**
 computational operators **and** the functional objects that define a
 recursive problem.
 
