@@ -4,7 +4,7 @@ setup(
     name="dynx_runner",
     version="0.1.0",
     description="A package for parameter sweeping and optimization of economic models",
-    author="ModCraft Team",
+    author="Dyn-X Team",
     packages=find_packages(),
     install_requires=[
         "numpy>=1.20.0",

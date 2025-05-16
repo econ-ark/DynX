@@ -1,7 +1,5 @@
-# ModCraft package requirements
-# Python version
-# Requires Python 3.13
-# python>=3.13.0
+# Dyn-X package requirements
+# (Runtime deps live in pyproject.toml – this file is for tools & extras.)
 
 # Core dependencies
 networkx>=3.4.0  # Updated for Python 3.13 compatibility
@@ -22,4 +20,12 @@ jupytext>=1.15.0  # Updated for Python 3.13 compatibility
 # Development dependencies
 pytest>=7.4.0
 pytest-cov>=4.1.0
-black>=24.0.0 
+black>=24.0.0
+
+# ────────────────────────────────────────────────
+# Documentation build / site-preview
+# ────────────────────────────────────────────────
+mkdocs-material>=9.5.2
+mkdocstrings[python]>=0.24
+# fallback / explicit handler (solves the missing-module error)
+mkdocstrings-python>=0.24 

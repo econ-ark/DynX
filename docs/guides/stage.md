@@ -1,6 +1,6 @@
 # StageCraft: Stage
 
-The `Stage` class is the central organizing structure in ModCraft, representing an **evaluation of the factored Bellman operator** and the **push-forwards** under its solution.
+The `Stage` class is the central organizing structure for a modular dynamic programming problem, representing an **evaluation of the factored Bellman operator** and the **push-forwards** under its solution.
 
 ## Contents
 - [Core Components](#core-components)

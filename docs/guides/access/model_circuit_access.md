@@ -1,6 +1,6 @@
-# ModCraft Model Access Cheatsheet
+# Model Circuit Access Cheatsheet
 
-This document provides a quick reference for accessing components in the ModCraft framework.
+This document provides a quick reference for accessing components in the Dyn-X framework.
 
 ## Model Circuit Structure
 

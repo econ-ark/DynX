@@ -1,0 +1,77 @@
+# ──────────────────────────────────────────────────────────────
+# Dyn-X documentation build configuration
+# ──────────────────────────────────────────────────────────────
+
+site_name: Dyn-X
+site_description: "A DAG framework for recursive dynamic models."
+site_author: "Christopher Carroll, Alan Lujan, Akshay Shanker & Matthew White"
+repo_url: https://github.com/akshayshanker/dynx
+repo_name: akshayshanker/dynx
+docs_dir: docs                      
+site_dir: site                       
+
+theme:
+  name: material
+  language: en
+  palette:
+    primary: indigo
+    accent: indigo
+  features:
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+
+nav:
+  - Home: index.md
+
+  - Guides:
+      - Stages: guides/stage.md
+      - Heptapod-X Model Representation: guides/heptapod-x.md
+      - Periods and Models: guides/periods_models.md
+      - Stage Access Cheat-Sheet: guides/access/stage_access.md
+      - Model-Circuit Access Cheat-Sheet: guides/access/model_circuit_access.md
+
+  - Theory:
+      - Factored Bellman Operators: theory/modular_bellman.md
+      - Core Concepts: theory/concepts.md
+
+  - API Reference: api.md            # live docs rendered by mkdocstrings
+
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ['.']               # we're running MkDocs *inside* codebase
+          options:
+            docstring_style: google
+            show_signature_annotations: true
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tasklist
+  - pymdownx.arithmatex:      # ← enable LaTeX inside Markdown
+      generic: true           #   keep Material's built-in styling
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/akshayshanker/dynx
+  version:
+    default: latest
+    provider: mike                 # optional; use mike for versioned docs 
+
+# Load MathJax v3 from a CDN so the formulas can render
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js 

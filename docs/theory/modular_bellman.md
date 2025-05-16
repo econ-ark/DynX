@@ -130,7 +130,7 @@ The forward operations taking each `.dist` operation from one perch to its succe
 The following diagram illustrates each perch (`arvl`, `dcsn`, `cntn`) along with its canonical **functional objects** and each forward mover (`arvl_to_dcsn`, `dcsn_to_cntn`) and backward mover (`dcsn_to_arvl`, `cntn_to_dcsn`) with its canonical **functional operation**.
 
 <p align="center">
-  <img src="stage_cycle_basic.png" alt="Stage Cycle Basic Diagram" width="600"/>
+  <img src="/assets/stage_cycle_basic.png" alt="Stage Cycle Basic Diagram" width="600"/>
 </p>
 
 ## Summary
