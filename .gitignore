@@ -180,3 +180,8 @@ docs/*.fls
 docs/*.fdb_latexmk
 docs/*.aux
 docs/*.log
+
+# ---------------------------------
+# VS Code
+.vscode/
+# ---------------------------------

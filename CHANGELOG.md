@@ -2,6 +2,10 @@
 
 # Change Log
 
+## [0.1.8.dev0] - 2025-05-16
+
+* Public dev version in GitHub.
+
 ## [0.1.7.1.3.dev0] - 2025-05-16
 
 ⚠️ **Experimental Development Build**  
