@@ -1,4 +1,4 @@
-# Dyn-X: Functional Recursion Using Graphs
+# Dyn-X: Modular Dynamic Programming Using Graphs
 
 ⚠️ **Experimental Development Build** – APIs and documentation are incomplete.⚠️ 
 
