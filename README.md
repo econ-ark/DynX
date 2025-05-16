@@ -1,4 +1,4 @@
-# Dyn-X: Modular Dynamic Programming Using Graphs
+# Dyn-X: Graphical Modular Dynamic Programming
 
 ⚠️ **Experimental Development Build** – APIs and documentation are incomplete.⚠️ 
 
