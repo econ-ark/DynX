@@ -49,7 +49,10 @@ all       = ["dynx[heptapodx,mpi,test,dev]"]
 
 # ----------------------------------------------------------------
 [tool.setuptools]
-packages = ["dynx"]
+# let setuptools collect dynx and every nested sub-package
+[tool.setuptools.packages.find]
+where   = ["."]
+include = ["dynx*"]
 
 [tool.black]
 line-length = 100
