@@ -48,11 +48,11 @@ dev       = ["black>=21.5b2", "isort>=5.9.1", "mypy>=0.800", "flake8>=3.9.0"]
 all       = ["dynx[heptapodx,mpi,test,dev]"]
 
 # ----------------------------------------------------------------
-[tool.setuptools]
-# let setuptools collect dynx and every nested sub-package
+# Ship *all* dynx sub-packages automatically
 [tool.setuptools.packages.find]
 where   = ["."]
-include = ["dynx*"]
+include = ["dynx*"]          # dynx, dynx.core, dynx.stagecraft, …
+exclude = ["tests*", "docs*", "examples*"]   # optional noise-cut
 
 [tool.black]
 line-length = 100
