@@ -3,7 +3,7 @@
 
 # Core dependencies
 networkx>=3.4.0  # Updated for Python 3.13 compatibility
-numpy>=2.0.0  # Updated for Python 3.13 compatibility
+numpy  # Updated for Python 3.13 compatibility
 pyyaml>=6.0
 matplotlib>=3.9.0  # Updated for Python 3.13 compatibility
 
