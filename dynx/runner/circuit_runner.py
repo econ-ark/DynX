@@ -279,110 +279,114 @@ class CircuitRunner:
             return metrics, model
         return metrics
 
-
 def mpi_map(
-    runner: CircuitRunner,
+    runner: CircuitRunner,          # ← unchanged signature
     xs: np.ndarray,
     return_models: bool = False,
     mpi: bool = True,
+    comm: Optional[MPI.Comm] = None,
 ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, List[Any]]]:
     """
-    Apply CircuitRunner.run to multiple parameter vectors, potentially in parallel.
+    Map ``runner.run`` over a design matrix, optionally using MPI.
 
-    This function maps the runner's run method across multiple parameter vectors.
-    If MPI is available and enabled, it distributes the work across MPI ranks.
+    Parameters
+    ----------
+    runner : CircuitRunner
+        Configured runner.
+    xs : np.ndarray
+        2-D design matrix (n_rows × n_params).
+    return_models : bool, default False
+        Return solved model objects **only in single-process mode**.
+        Under MPI they stay on the worker ranks; rank 0 receives an empty
+        list so the caller can still unpack the tuple.
+    mpi : bool, default True
+        Try to parallelise with MPI if ``mpi4py`` is available.
 
-    Args:
-        runner: CircuitRunner instance
-        xs: Array of parameter vectors (shape: n_samples x n_params)
-        return_models: Whether to return model instances along with metrics
-        mpi: Whether to use MPI for parallelization (if available)
+    Returns
+    -------
+    pandas.DataFrame
+        Combined parameters + metrics.
+    tuple
+        *(df, models)* if ``return_models`` is True.
 
-    Returns:
-        Union[pd.DataFrame, Tuple[pd.DataFrame, List[Any]]]: DataFrame with parameter values and metrics, 
-        optionally with a list of model instances
-
-    Raises:
-        ValueError: If xs doesn't have the expected shape
+    Notes
+    -----
+    Worker ranks always return ``None``; call this from rank 0 and guard
+    accordingly.
     """
     if xs.ndim != 2:
-        raise ValueError(f"Expected 2D array, got {xs.ndim}D")
+        raise ValueError(f"Expected a 2-D array, got {xs.ndim}-D")
     
+    
+    if comm is None:
+        HAS_MPI = False
+    elif comm.Get_size() > 1:
+        HAS_MPI = True
+    else:
+        HAS_MPI = False
+
     use_mpi = mpi and HAS_MPI
-    
+
+    # ------------------------------------------------------------------
+    # 1) Distribute rows
+    # ------------------------------------------------------------------
     if use_mpi:
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-        size = comm.Get_size()
-        
-        if rank == 0:
-            # Master process distributes work
-            chunks = np.array_split(xs, size)
-        else:
-            chunks = None
-        
-        # Scatter chunks to all processes
-        chunk = comm.scatter(chunks, root=0)
+        #comm  = MPI.COMM_WORLD
+        rank  = comm.Get_rank()
+        size  = comm.Get_size()
+
+        chunks = np.array_split(xs, size) if rank == 0 else None
+        chunk  = comm.scatter(chunks, root=0)
     else:
-        # No MPI, just use the full array
+        rank  = 0
         chunk = xs
-    
-    # Process local chunk
-    results = []
-    models_list = [] if return_models else None
-    
-    for x in chunk:
+
+    # ------------------------------------------------------------------
+    # 2) Run locally
+    # ------------------------------------------------------------------
+    local_metrics: list[dict] = []
+    local_models:  list[Any] | None = [] if (return_models and not use_mpi) else None
+
+    for row in chunk:
         if return_models:
-            metrics, model = runner.run(x, return_model=True)
-            results.append(metrics)
-            models_list.append(model)
+            metrics, model = runner.run(row, return_model=True)
+            if local_models is not None:          # single-proc case
+                local_models.append(model)
         else:
-            metrics = runner.run(x)
-            results.append(metrics)
-    
-    # Convert complex values to JSON strings for DataFrame compatibility
-    for result in results:
-        for k, v in result.items():
-            if not np.isscalar(v) and not isinstance(v, str):
-                result[k] = json.dumps(v)
-    
-    # Create DataFrame with parameters and metrics
-    param_values = [list(x) for x in chunk]
-    
-    # Create a DataFrame from the parameters
-    if len(param_values) > 0:
-        param_df = pd.DataFrame(param_values, columns=runner.param_paths)
-        
-        # Create a DataFrame from the metrics
-        metrics_df = pd.DataFrame(results)
-        
-        # Combine parameters and metrics
-        local_df = pd.concat([param_df, metrics_df], axis=1)
-    else:
-        # Empty DataFrame with correct columns
-        columns = runner.param_paths + list(runner.metric_fns.keys())
-        local_df = pd.DataFrame(columns=columns)
-    
+            metrics = runner.run(row)
+
+        # JSON-encode complex values so DataFrame construction succeeds
+        for k, v in list(metrics.items()):
+            if (not np.isscalar(v)) and (not isinstance(v, str)):
+                metrics[k] = json.dumps(v)
+
+        local_metrics.append(metrics)
+
+    # ------------------------------------------------------------------
+    # 3) Build local DataFrame
+    # ------------------------------------------------------------------
+    param_df   = pd.DataFrame(chunk, columns=runner.param_paths)
+    metrics_df = pd.DataFrame(local_metrics)
+    local_df   = pd.concat([param_df, metrics_df], axis=1)
+
+    # ------------------------------------------------------------------
+    # 4) Gather to rank 0 (if MPI)
+    # ------------------------------------------------------------------
     if use_mpi:
-        # Gather results from all processes
         all_dfs = comm.gather(local_df, root=0)
-        
-        if return_models:
-            all_models = comm.gather(models_list, root=0)
-        
+
         if rank == 0:
-            # Combine all DataFrames
             df = pd.concat(all_dfs, ignore_index=True)
-            
             if return_models:
-                # Flatten list of lists
-                models = [m for sublist in all_models for m in sublist]
-                return df, models
+                return df, []          # models stayed on workers
             return df
-        return None  # Non-root processes return None
-    
+        return None                    # workers return nothing useful
+
+    # ------------------------------------------------------------------
+    # 5) Single-process return
+    # ------------------------------------------------------------------
     if return_models:
-        return local_df, models_list
+        return local_df, local_models  # type: ignore[return-value]
     return local_df
 
 
