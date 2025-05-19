@@ -284,7 +284,7 @@ def mpi_map(
     xs: np.ndarray,
     return_models: bool = False,
     mpi: bool = True,
-    comm: Optional[MPI.Comm] = None,
+    comm: Optional["MPI.Comm"] = None,
 ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, List[Any]]]:
     """
     Map ``runner.run`` over a design matrix, optionally using MPI.
