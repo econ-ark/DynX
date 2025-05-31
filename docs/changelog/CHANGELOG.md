@@ -2,6 +2,25 @@
 
 # Change Log
 
+Refactor
+## [0.1.8.dev1] - 2025-05-16
+
+### Added
+* New `Solution` container class in `stagecraft.solmaker` for storing stage solutions
+* Numba-compatible solution storage with support for arbitrary-dimensional arrays
+* Dual access pattern (attribute and dictionary-style) for all solution fields
+* Support for nested policy dictionaries and EGM layer storage
+* Save/load functionality using NPZ + JSON format
+* Comprehensive unit tests for the Solution container
+
+
+
+### Migration Notes
+* Existing code accessing `stage.dcsn.sol["policy"]` should now use `stage.dcsn.sol.policy["c"]` for consumption policy
+* Housing/service policies are now accessed as `sol.policy["H"]` and `sol.policy["S"]` respectively
+* EGM grids are accessed via `sol.EGM.refined.e` instead of `sol["EGM"]["refined"]["e"]`
+* The Solution object can be converted to/from plain dicts using `as_dict()` and `from_dict()` methods
+
 ## [0.1.8.dev0] - 2025-05-16
 
 * MPI circuit runner does not pickle model classes and only gathers and returns results from rank 0.
