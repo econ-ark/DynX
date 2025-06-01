@@ -13,9 +13,9 @@ from dynx.core import CircuitBoard, Perch, Mover
 
 # StageCraft components
 from dynx.stagecraft import Stage, ModelCircuit, Period
-from dynx.stagecraft.config_loader import initialize_model_Circuit
+from dynx.stagecraft.makemod import initialize_model_Circuit
 from dynx.stagecraft.solmaker import Solution
-from dynx.stagecraft.saver import save_circuit, load_circuit
+from dynx.stagecraft.io import save_circuit, load_circuit, load_config
 
 # Runner components 
 from dynx.runner import CircuitRunner, RunRecorder, mpi_map
@@ -26,7 +26,7 @@ __all__ = [
     "CircuitBoard", "Perch", "Mover",
     
     # StageCraft
-    "Stage", "ModelCircuit", "Period", "initialize_model_Circuit", "Solution", "save_circuit", "load_circuit",
+    "Stage", "ModelCircuit", "Period", "initialize_model_Circuit", "Solution", "save_circuit", "load_circuit", "load_config",
     
     # Runner
     "CircuitRunner", "RunRecorder", "mpi_map",

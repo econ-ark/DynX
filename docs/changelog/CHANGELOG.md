@@ -2,6 +2,94 @@
 
 # Change Log
 
+## [0.1.8.dev4] - 2024-12-26
+
+### Fixed
+- **Solution Object Re-hydration**:
+  - Fixed issue where loaded Solution objects were plain dictionaries instead of proper Solution instances
+  - `load_circuit` now detects when a pickled object is a Solution dictionary and automatically converts it back to a Solution object
+  - This ensures downstream code that expects Solution attributes (like `.EGM.unrefined`) works correctly
+  - Regular dictionaries that don't match the Solution structure are preserved as-is
+- **Branch Dictionary Handling**:
+  - Fixed serialization of branch dictionaries containing Solution objects (e.g., TENU.cntn.sol with `{"from_owner": <Solution>, "from_renter": <Solution>}`)
+  - Previously failed with "not pickle-able" error due to numba typed.Dict objects inside Solutions
+  - Now automatically converts each Solution to dict before pickling and re-hydrates on load
+  - Prevents zero-byte sol.pkl files and subsequent EOFError when loading
+
+### Changed
+- **Enhanced Config Saving**:
+  - Added `_dump_yaml` helper for cleaner YAML writing
+  - `_copy_configs` now supports canonical container dictionaries with `{"master", "stages", "connections"}` structure
+  - Improved organization when saving stage configurations to the `stages/` subdirectory
+
+### Technical Details
+- Solution detection uses key-set check: `{"policy", "EGM", "timing"}` to identify Solution dictionaries
+- Branch dictionary detection identifies dicts containing Solution objects and serializes each branch separately
+- Re-hydration applies to both `sol.pkl` and `sim.pkl` files
+- Uses `Solution.from_dict()` to properly reconstruct the object with all its attributes
+
+## [0.1.8.dev3] - 2024-12-26
+
+### Added
+- **Folder-Based Config Loading**:
+  - Added `load_config` helper function in `dynx.stagecraft.io` to load configurations from a structured directory
+  - Expected folder structure:
+    ```
+    config_dir/
+    ├── master.yml
+    ├── stages/
+    │   ├── stage1.yml
+    │   └── stage2.yaml    # Both .yml and .yaml extensions supported
+    └── connections.yml
+    ```
+  - Returns a dictionary with keys "master", "stages", and "connections"
+  - Supports both `.yml` and `.yaml` file extensions for stage configurations
+  - Stage names are automatically uppercased to ensure consistency with Stage object names
+  
+### Changed
+- **Refactored `load_circuit`**:
+  - Now accepts only a directory path (no more file/zip arguments)
+  - Uses the new `load_config` helper internally
+  - Added `restore_data` parameter (default True) to control whether solution/distribution data is restored
+  - Improved error messages for missing files and directories
+- **Stage Name Normalization**:
+  - Stage configuration keys are now automatically uppercased when loading (e.g., `tenu.yml` → `"TENU"` key)
+  - Ensures compatibility regardless of filename casing conventions
+
+### Fixed
+- **Import and Path Handling**:
+  - Added missing `argparse` import for CLI functionality
+  - Wrapped paths in `str()` for FileNotFoundError messages to avoid Python 3.8 compatibility issues
+  - Confirmed `.yaml` extension support in `_copy_configs` (already present)
+  
+### Improved
+- **Test Suite Updates**:
+  - Updated `tests/saver/test_saver.py` to use folder-based configurations
+  - Added dedicated test for `load_config` function
+  - Added test for verifying folder structure after save
+  - Added tests for `.yaml` file extension support
+
+### Migration Notes
+* If you were passing individual YAML files to `load_circuit`, update to pass only the directory path
+* Config loading now expects the standard folder structure with `master.yml`, `connections.yml`, and `stages/` subdirectory
+* The `load_config` function can be used standalone to load configurations for custom workflows
+* Stage configuration files can use either `.yml` or `.yaml` extensions
+
+## [0.1.8.dev2] - 2024-12-26
+
+### Changed
+- **Module Renaming**:
+  - Renamed `config_loader` module to `makemod` for better clarity and naming consistency
+  - Updated all imports throughout the codebase from `dynx.stagecraft.config_loader` to `dynx.stagecraft.makemod`
+  - Updated test files to use the new module name
+  - Fixed `saver.py` to properly load YAML configurations and pass them as dictionaries to `initialize_model_Circuit`
+  - Updated saver.py to io.py for clarity. 
+
+### Migration Notes
+* Update all imports: Change `from dynx.stagecraft.config_loader import ...` to `from dynx.stagecraft.makemod import ...`
+* The functionality remains the same - only the module name has changed
+* The main function `initialize_model_Circuit` and helper functions like `compile_all_stages` retain their original names
+
 Refactor
 ## [0.1.8.dev1] - 2025-05-16
 

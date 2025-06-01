@@ -14,7 +14,7 @@ sys.path.insert(0, repo_root)
 
 # Import from ModCraft
 from src.stagecraft import Stage
-from src.stagecraft.config_loader import initialize_model_Circuit
+from dynx.stagecraft.makemod import initialize_model_Circuit
 from src.heptapod_b.io.yaml_loader import load_config
 from src.heptapod_b.num.generate import compile_num as generate_numerical_model
 

@@ -1,6 +1,8 @@
 import os
 import sys
 import logging
+from pathlib import Path
+import yaml
 
 # Add project root to path to allow importing src modules
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -9,7 +11,7 @@ sys.path.insert(0, repo_root)
 
 # Import necessary functions AFTER adjusting path
 from src.heptapod_b.io.yaml_loader import load_config
-from src.stagecraft.config_loader import initialize_model_Circuit, compile_all_stages
+from dynx.stagecraft.makemod import initialize_model_Circuit, compile_all_stages
 
 # Configure basic logging for the test
 logging.basicConfig(level=logging.INFO)

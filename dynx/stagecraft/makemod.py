@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 # ==================
 
 class LoaderError(RuntimeError):
-    """Top-level error thrown by config_loader."""
+    """Top-level error thrown by makemod."""
     pass
 
 class ConfigKeyError(LoaderError):
@@ -918,7 +918,4 @@ def _create_single_inter_period_connection_impl(
             f"Period {target_period_idx}.{target_stage_name}"
         )
     except Exception as e:
-        logger.warning(f"Error creating inter-period connection: {e}")
-
-
-
+        logger.warning(f"Error creating inter-period connection: {e}") 
