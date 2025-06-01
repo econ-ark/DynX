@@ -22,6 +22,15 @@ Demonstrates the automatic Solution object re-hydration feature introduced in v0
 - **Benefits**: Ensures compatibility with downstream code expecting Solution attributes
 - **Error prevention**: Prevents `AttributeError` when accessing `.EGM.unrefined` etc.
 
+### branch_dict_example.py
+
+Demonstrates branch dictionary handling for stages with multiple solution branches (e.g., TENU):
+
+- **Branch solutions**: Shows how to create dictionaries mapping branch keys to Solution objects
+- **Serialization problem**: Explains why numba typed.Dict objects cause pickling failures
+- **Smart handling**: How the io module detects and properly serializes branch dictionaries
+- **Usage patterns**: How to access branch-specific solutions after loading
+
 ## Expected Config Directory Structure
 
 The `load_config` function expects the following directory structure:
@@ -60,4 +69,4 @@ model = initialize_model_Circuit(
 ## See Also
 
 - [StageCraft Documentation](../../dynx/stagecraft/README.md)
-- [Saver Module Tests](../../tests/saver/test_saver.py) 
+- [Saver Module Tests](../../tests/saver/test_saver.py)
