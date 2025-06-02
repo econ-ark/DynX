@@ -2,6 +2,195 @@
 
 # Change Log
 
+## [0.1.8.dev6] - 2025-01-02
+
+### Added
+- **Reference Model Deviation Metrics**:
+  - Added `method_param_path` parameter to CircuitRunner for method-aware bundle organization
+  - Created new bundle directory structure: `output_root/bundles/<hash>/<METHOD>/`
+  - Implemented reference model loading utilities in `dynx.runner.reference_utils`
+  - Added deviation metric functions in `dynx.runner.metrics.deviations`:
+    - L2 and L∞ norms for consumption (`dev_c_L2`, `dev_c_Linf`)
+    - L2 and L∞ norms for assets (`dev_a_L2`, `dev_a_Linf`)
+    - L2 and L∞ norms for value functions (`dev_v_L2`, `dev_v_Linf`)
+    - L2 and L∞ norms for policy functions (`dev_pol_L2`, `dev_pol_Linf`)
+  - Added `make_policy_dev_metric` factory function for creating custom deviation metrics
+  - Enhanced metric invocation to pass `_runner` and `_x` arguments for context-aware metrics
+
+### Changed
+- **Bundle Path Structure**:
+  - Modified `_bundle_path` to include method subdirectories when `method_param_path` is set
+  - Method-less projects (with `method_param_path=None`) continue to use flat bundle structure
+  - Bundle paths now follow: `bundles/<param_hash>/<method_name>/` in method-aware mode
+- **Metric Function Signature**:
+  - Metric functions can now accept optional `_runner` and `_x` keyword arguments
+  - Backward compatibility maintained through try/except fallback for legacy metrics
+
+### Improved
+- **Reference Model Workflow**:
+  - Users can solve high-accuracy reference models once and compare multiple fast methods
+  - Deviation metrics automatically load reference solutions when available
+  - Metrics return `NaN` when reference model is missing (non-breaking behavior)
+  - Default reference method is `VFI_HDGRID` (configurable via `DEFAULT_REF_METHOD`)
+
+### Documentation
+- **Added Unit Tests**:
+  - Comprehensive test suite in `tests/unit/test_runner_deviation.py`
+  - Tests for method-aware bundle paths, deviation calculations, and backward compatibility
+  - Tests for method-less mode ensuring flat bundle structure is preserved
+
+### Technical Implementation
+- **New Modules**:
+  - `dynx/runner/reference_utils.py`: Functions for locating and loading reference models
+  - `dynx/runner/metrics/deviations.py`: Policy deviation metric implementations
+  - `dynx/runner/metrics/__init__.py`: Package initialization with metric exports
+- **Helper Functions**:
+  - `ref_bundle_path()`: Compute path to reference bundle for given parameters
+  - `load_reference_model()`: Load reference model if it exists
+
+### Migration Notes
+- Existing code continues to work unchanged (backward compatible)
+- To use deviation metrics, add `method_param_path` to CircuitRunner (default: `"master.methods.upper_envelope"`)
+- Add deviation metrics to `metric_fns` dictionary: `{"dev_c_L2": dev_c_L2, ...}`
+- Reference models should be solved with `DEFAULT_REF_METHOD` (typically `"VFI_HDGRID"`)
+
+### Usage Example
+```python
+from dynx.runner import CircuitRunner
+from dynx.runner.metrics import dev_c_L2, dev_c_Linf
+
+# Configure runner with method awareness
+runner = CircuitRunner(
+    base_cfg=cfg,
+    param_paths=["beta", "sigma", "master.methods.upper_envelope"],
+    model_factory=make_model,
+    solver=solve,
+    metric_fns={"dev_c_L2": dev_c_L2, "dev_c_Linf": dev_c_Linf},
+    output_root="results/",
+    save_by_default=True,
+    method_param_path="master.methods.upper_envelope"
+)
+
+# Solve reference (once)
+x_ref = runner.pack({"beta": 0.96, "sigma": 2.0, "master.methods.upper_envelope": "VFI_HDGRID"})
+runner.run(x_ref)
+
+# Compare fast methods
+x_fast = runner.pack({"beta": 0.96, "sigma": 2.0, "master.methods.upper_envelope": "FUES"})
+metrics = runner.run(x_fast)
+print(f"L2 deviation: {metrics['dev_c_L2']}")
+```
+
+## [0.1.8.dev5] - 2024-12-27
+
+### Added
+- **Disk-Based Save/Load Support for CircuitRunner**:
+  - Implemented complete bundle management system allowing each `runner.run(x)` invocation to save solved ModelCircuits to disk and load existing bundles to skip re-solving
+  - **New CircuitRunner Parameters**:
+    - `output_root`: Parent directory for bundle storage (None disables saving unless overridden)
+    - `bundle_prefix`: First part of bundle folder names (default: "run")
+    - `save_by_default`: Auto-save every solved model (default: False)
+    - `load_if_exists`: Auto-load existing bundles instead of solving (default: False)
+    - `hash_len`: Number of hex chars from MD5 hash for directory naming (default: 8)
+    - `config_src`: Source configuration to pass to save_circuit (preserves original config format)
+  - **Enhanced run() Method**:
+    - Added `save_model` parameter to override `save_by_default` for individual calls
+    - Method signature now uses keyword-only arguments: `run(x, *, return_model=False, save_model=None)`
+  - **Reserved Design Matrix Parameter**:
+    - `__runner.mode` parameter accepts "solve" or "load" to override all flags for specific rows
+    - Extracted from parameter vector and controls solve/load behavior per invocation
+  - **Bundle Structure**:
+    - Directory naming: `<output_root>/<bundle_prefix>_<hash>` where hash is first `hash_len` chars of MD5(parameter vector)
+    - Uses existing `save_circuit()` and `load_circuit()` from `dynx.stagecraft.io`
+    - Enhanced manifest with bundle metadata: hash, prefix, saved_by_rank, and complete parameter dictionary
+  - **Design Matrix CSV Export**:
+    - Automatic creation of `<output_root>/design_matrix.csv` after parameter sweeps
+    - Contains columns for all parameter paths plus `param_hash` and `bundle_dir`
+    - Supports incremental updates with duplicate detection for multiple sweeps
+    - Single-write semantics: only rank 0 writes in MPI mode
+  - **MPI Compatibility**:
+    - Each rank uses same hash function for deterministic bundle paths
+    - Automatic rank collision detection: appends `_r{rank}` to prefix when filesystem collision detected
+    - Workers can save bundles locally while rank 0 aggregates results
+    - Full compatibility with existing `mpi_map()` function
+
+### Changed
+- **CircuitRunner API Evolution**:
+  - `run()` method now supports keyword-only arguments for clarity
+  - Enhanced parameter unpacking to handle reserved `__runner.mode` parameter
+  - Improved MPI detection logic in `mpi_map()` to avoid variable shadowing
+  - Added graceful fallbacks when `dynx.stagecraft.io` is not available
+  - Fixed caching logic to always compute hash key but only use cache when enabled
+
+### Improved
+- **Bundle Management Features**:
+  - Deterministic bundle naming based on parameter vector hashing
+  - Smart load/save logic with multiple override mechanisms
+  - Comprehensive manifest generation including all run parameters
+  - Robust error handling for save/load operations with helpful warnings
+  - Automatic directory creation and collision avoidance
+  - **Cross-Machine Compatibility**: Automatic stage re-compilation after loading bundles
+  - **Broken Bundle Cleanup**: Automatic removal of corrupted bundles to prevent repeated failures
+- **Config Source Handling**:
+  - Support for preserving original config source format (files, directories, dicts)
+  - Fallback to synthetic container creation when config_src not provided
+  - Better compatibility with various configuration input formats
+
+### Documentation
+- **New Examples**:
+  - Updated `examples/circuit_runner_saving.py` with design matrix CSV demonstration
+  - Comprehensive test suite in `tests/runner/test_circuit_runner_save_load.py`
+  - Added tests for design matrix creation, deduplication, and error handling
+  - Examples cover basic save/load, mode parameter usage, and parameter sweeps with bundle management
+
+### Technical Implementation
+- **Helper Methods**:
+  - `_bundle_path(x)`: Generate bundle directory paths with collision detection
+  - `_hash_param_vec(x)`: Create deterministic hashes of parameter vectors  
+  - `_maybe_load_bundle(path)`: Safe wrapper around `load_circuit()` with error handling and cleanup
+  - `_write_design_matrix_csv()`: Create and maintain design matrix CSV files
+- **Config Container Creation**: Automatically structures base_cfg into proper container format for `save_circuit()`
+- **Manifest Enhancement**: Extends base manifest with bundle-specific metadata and parameter tracking
+
+### Fixed
+- **RunRecorder Interface**: Updated all examples and tests to use `recorder.add()` instead of deprecated `recorder.record()`
+- **Cache Key Logic**: Fixed issue where cache key was computed conditionally but used unconditionally
+- **MPI Variable Shadowing**: Resolved shadowing of module-level `HAS_MPI` variable in `mpi_map()`
+- **Bundle Loading**: Added stage re-compilation after loading for cross-machine compatibility
+- **Error Recovery**: Improved error handling with automatic cleanup of broken bundles
+
+### Migration Notes
+- The `run()` method signature change requires keyword arguments for `return_model` and the new `save_model` parameters
+- Bundle features are optional and disabled by default - no breaking changes for existing code
+- When `dynx.stagecraft.io` is unavailable, bundle features are disabled with warnings
+- MPI behavior remains unchanged; bundles provide additional persistence without affecting parallelization
+- Design matrix CSV files are created automatically and can be used for post-experiment analysis
+
+### Usage Example
+```python
+runner = CircuitRunner(
+    base_cfg=cfg,
+    param_paths=["beta", "sigma"],
+    model_factory=make_model,
+    solver=solve,
+    output_root="solutions/",
+    bundle_prefix="housing",
+    save_by_default=True,
+    load_if_exists=True,
+    config_src=original_config_path,  # Preserve original format
+)
+
+# Run parameter sweep - creates bundles and design_matrix.csv
+df = mpi_map(runner, design_matrix, return_models=False)
+
+# Analyze results using design matrix
+import pandas as pd
+design_df = pd.read_csv("solutions/design_matrix.csv")
+print(f"Completed {len(design_df)} parameter combinations")
+for _, row in design_df.iterrows():
+    print(f"  {row['param_hash']}: {row['bundle_dir']}")
+```
+
 ## [0.1.8.dev4] - 2024-12-26
 
 ### Fixed

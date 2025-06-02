@@ -25,10 +25,10 @@ development build directly from GitHub:
 pip install "git+https://github.com/akshayshanker/dynx.git#egg=dynx"
 ```
 
-**Specific dev release (v0.18.dev0)**
+**Specific dev release (v0.18.dev4)**
 
 ```bash
-pip install "git+https://github.com/akshayshanker/dynx.git@v0.18.dev0#egg=dynx"
+pip install "git+https://github.com/akshayshanker/dynx.git@v0.18.dev4#egg=dynx"
 ```
 
 To upgrade an existing installation:
