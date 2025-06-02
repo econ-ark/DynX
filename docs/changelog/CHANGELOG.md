@@ -2,6 +2,302 @@
 
 # Change Log
 
+## [0.1.8.dev6] - 2025-01-02
+
+### Added
+- **Reference Model Deviation Metrics**:
+  - Added `method_param_path` parameter to CircuitRunner for method-aware bundle organization
+  - Created new bundle directory structure: `output_root/bundles/<hash>/<METHOD>/`
+  - Implemented reference model loading utilities in `dynx.runner.reference_utils`
+  - Added deviation metric functions in `dynx.runner.metrics.deviations`:
+    - L2 and L∞ norms for consumption (`dev_c_L2`, `dev_c_Linf`)
+    - L2 and L∞ norms for assets (`dev_a_L2`, `dev_a_Linf`)
+    - L2 and L∞ norms for value functions (`dev_v_L2`, `dev_v_Linf`)
+    - L2 and L∞ norms for policy functions (`dev_pol_L2`, `dev_pol_Linf`)
+  - Added `make_policy_dev_metric` factory function for creating custom deviation metrics
+  - Enhanced metric invocation to pass `_runner` and `_x` arguments for context-aware metrics
+
+### Changed
+- **Bundle Path Structure**:
+  - Modified `_bundle_path` to include method subdirectories when `method_param_path` is set
+  - Method-less projects (with `method_param_path=None`) continue to use flat bundle structure
+  - Bundle paths now follow: `bundles/<param_hash>/<method_name>/` in method-aware mode
+- **Metric Function Signature**:
+  - Metric functions can now accept optional `_runner` and `_x` keyword arguments
+  - Backward compatibility maintained through try/except fallback for legacy metrics
+
+### Improved
+- **Reference Model Workflow**:
+  - Users can solve high-accuracy reference models once and compare multiple fast methods
+  - Deviation metrics automatically load reference solutions when available
+  - Metrics return `NaN` when reference model is missing (non-breaking behavior)
+  - Default reference method is `VFI_HDGRID` (configurable via `DEFAULT_REF_METHOD`)
+
+### Documentation
+- **Added Unit Tests**:
+  - Comprehensive test suite in `tests/unit/test_runner_deviation.py`
+  - Tests for method-aware bundle paths, deviation calculations, and backward compatibility
+  - Tests for method-less mode ensuring flat bundle structure is preserved
+
+### Technical Implementation
+- **New Modules**:
+  - `dynx/runner/reference_utils.py`: Functions for locating and loading reference models
+  - `dynx/runner/metrics/deviations.py`: Policy deviation metric implementations
+  - `dynx/runner/metrics/__init__.py`: Package initialization with metric exports
+- **Helper Functions**:
+  - `ref_bundle_path()`: Compute path to reference bundle for given parameters
+  - `load_reference_model()`: Load reference model if it exists
+
+### Migration Notes
+- Existing code continues to work unchanged (backward compatible)
+- To use deviation metrics, add `method_param_path` to CircuitRunner (default: `"master.methods.upper_envelope"`)
+- Add deviation metrics to `metric_fns` dictionary: `{"dev_c_L2": dev_c_L2, ...}`
+- Reference models should be solved with `DEFAULT_REF_METHOD` (typically `"VFI_HDGRID"`)
+
+### Usage Example
+```python
+from dynx.runner import CircuitRunner
+from dynx.runner.metrics import dev_c_L2, dev_c_Linf
+
+# Configure runner with method awareness
+runner = CircuitRunner(
+    base_cfg=cfg,
+    param_paths=["beta", "sigma", "master.methods.upper_envelope"],
+    model_factory=make_model,
+    solver=solve,
+    metric_fns={"dev_c_L2": dev_c_L2, "dev_c_Linf": dev_c_Linf},
+    output_root="results/",
+    save_by_default=True,
+    method_param_path="master.methods.upper_envelope"
+)
+
+# Solve reference (once)
+x_ref = runner.pack({"beta": 0.96, "sigma": 2.0, "master.methods.upper_envelope": "VFI_HDGRID"})
+runner.run(x_ref)
+
+# Compare fast methods
+x_fast = runner.pack({"beta": 0.96, "sigma": 2.0, "master.methods.upper_envelope": "FUES"})
+metrics = runner.run(x_fast)
+print(f"L2 deviation: {metrics['dev_c_L2']}")
+```
+
+## [0.1.8.dev5] - 2024-12-27
+
+### Added
+- **Disk-Based Save/Load Support for CircuitRunner**:
+  - Implemented complete bundle management system allowing each `runner.run(x)` invocation to save solved ModelCircuits to disk and load existing bundles to skip re-solving
+  - **New CircuitRunner Parameters**:
+    - `output_root`: Parent directory for bundle storage (None disables saving unless overridden)
+    - `bundle_prefix`: First part of bundle folder names (default: "run")
+    - `save_by_default`: Auto-save every solved model (default: False)
+    - `load_if_exists`: Auto-load existing bundles instead of solving (default: False)
+    - `hash_len`: Number of hex chars from MD5 hash for directory naming (default: 8)
+    - `config_src`: Source configuration to pass to save_circuit (preserves original config format)
+  - **Enhanced run() Method**:
+    - Added `save_model` parameter to override `save_by_default` for individual calls
+    - Method signature now uses keyword-only arguments: `run(x, *, return_model=False, save_model=None)`
+  - **Reserved Design Matrix Parameter**:
+    - `__runner.mode` parameter accepts "solve" or "load" to override all flags for specific rows
+    - Extracted from parameter vector and controls solve/load behavior per invocation
+  - **Bundle Structure**:
+    - Directory naming: `<output_root>/<bundle_prefix>_<hash>` where hash is first `hash_len` chars of MD5(parameter vector)
+    - Uses existing `save_circuit()` and `load_circuit()` from `dynx.stagecraft.io`
+    - Enhanced manifest with bundle metadata: hash, prefix, saved_by_rank, and complete parameter dictionary
+  - **Design Matrix CSV Export**:
+    - Automatic creation of `<output_root>/design_matrix.csv` after parameter sweeps
+    - Contains columns for all parameter paths plus `param_hash` and `bundle_dir`
+    - Supports incremental updates with duplicate detection for multiple sweeps
+    - Single-write semantics: only rank 0 writes in MPI mode
+  - **MPI Compatibility**:
+    - Each rank uses same hash function for deterministic bundle paths
+    - Automatic rank collision detection: appends `_r{rank}` to prefix when filesystem collision detected
+    - Workers can save bundles locally while rank 0 aggregates results
+    - Full compatibility with existing `mpi_map()` function
+
+### Changed
+- **CircuitRunner API Evolution**:
+  - `run()` method now supports keyword-only arguments for clarity
+  - Enhanced parameter unpacking to handle reserved `__runner.mode` parameter
+  - Improved MPI detection logic in `mpi_map()` to avoid variable shadowing
+  - Added graceful fallbacks when `dynx.stagecraft.io` is not available
+  - Fixed caching logic to always compute hash key but only use cache when enabled
+
+### Improved
+- **Bundle Management Features**:
+  - Deterministic bundle naming based on parameter vector hashing
+  - Smart load/save logic with multiple override mechanisms
+  - Comprehensive manifest generation including all run parameters
+  - Robust error handling for save/load operations with helpful warnings
+  - Automatic directory creation and collision avoidance
+  - **Cross-Machine Compatibility**: Automatic stage re-compilation after loading bundles
+  - **Broken Bundle Cleanup**: Automatic removal of corrupted bundles to prevent repeated failures
+- **Config Source Handling**:
+  - Support for preserving original config source format (files, directories, dicts)
+  - Fallback to synthetic container creation when config_src not provided
+  - Better compatibility with various configuration input formats
+
+### Documentation
+- **New Examples**:
+  - Updated `examples/circuit_runner_saving.py` with design matrix CSV demonstration
+  - Comprehensive test suite in `tests/runner/test_circuit_runner_save_load.py`
+  - Added tests for design matrix creation, deduplication, and error handling
+  - Examples cover basic save/load, mode parameter usage, and parameter sweeps with bundle management
+
+### Technical Implementation
+- **Helper Methods**:
+  - `_bundle_path(x)`: Generate bundle directory paths with collision detection
+  - `_hash_param_vec(x)`: Create deterministic hashes of parameter vectors  
+  - `_maybe_load_bundle(path)`: Safe wrapper around `load_circuit()` with error handling and cleanup
+  - `_write_design_matrix_csv()`: Create and maintain design matrix CSV files
+- **Config Container Creation**: Automatically structures base_cfg into proper container format for `save_circuit()`
+- **Manifest Enhancement**: Extends base manifest with bundle-specific metadata and parameter tracking
+
+### Fixed
+- **RunRecorder Interface**: Updated all examples and tests to use `recorder.add()` instead of deprecated `recorder.record()`
+- **Cache Key Logic**: Fixed issue where cache key was computed conditionally but used unconditionally
+- **MPI Variable Shadowing**: Resolved shadowing of module-level `HAS_MPI` variable in `mpi_map()`
+- **Bundle Loading**: Added stage re-compilation after loading for cross-machine compatibility
+- **Error Recovery**: Improved error handling with automatic cleanup of broken bundles
+
+### Migration Notes
+- The `run()` method signature change requires keyword arguments for `return_model` and the new `save_model` parameters
+- Bundle features are optional and disabled by default - no breaking changes for existing code
+- When `dynx.stagecraft.io` is unavailable, bundle features are disabled with warnings
+- MPI behavior remains unchanged; bundles provide additional persistence without affecting parallelization
+- Design matrix CSV files are created automatically and can be used for post-experiment analysis
+
+### Usage Example
+```python
+runner = CircuitRunner(
+    base_cfg=cfg,
+    param_paths=["beta", "sigma"],
+    model_factory=make_model,
+    solver=solve,
+    output_root="solutions/",
+    bundle_prefix="housing",
+    save_by_default=True,
+    load_if_exists=True,
+    config_src=original_config_path,  # Preserve original format
+)
+
+# Run parameter sweep - creates bundles and design_matrix.csv
+df = mpi_map(runner, design_matrix, return_models=False)
+
+# Analyze results using design matrix
+import pandas as pd
+design_df = pd.read_csv("solutions/design_matrix.csv")
+print(f"Completed {len(design_df)} parameter combinations")
+for _, row in design_df.iterrows():
+    print(f"  {row['param_hash']}: {row['bundle_dir']}")
+```
+
+## [0.1.8.dev4] - 2024-12-26
+
+### Fixed
+- **Solution Object Re-hydration**:
+  - Fixed issue where loaded Solution objects were plain dictionaries instead of proper Solution instances
+  - `load_circuit` now detects when a pickled object is a Solution dictionary and automatically converts it back to a Solution object
+  - This ensures downstream code that expects Solution attributes (like `.EGM.unrefined`) works correctly
+  - Regular dictionaries that don't match the Solution structure are preserved as-is
+- **Branch Dictionary Handling**:
+  - Fixed serialization of branch dictionaries containing Solution objects (e.g., TENU.cntn.sol with `{"from_owner": <Solution>, "from_renter": <Solution>}`)
+  - Previously failed with "not pickle-able" error due to numba typed.Dict objects inside Solutions
+  - Now automatically converts each Solution to dict before pickling and re-hydrates on load
+  - Prevents zero-byte sol.pkl files and subsequent EOFError when loading
+
+### Changed
+- **Enhanced Config Saving**:
+  - Added `_dump_yaml` helper for cleaner YAML writing
+  - `_copy_configs` now supports canonical container dictionaries with `{"master", "stages", "connections"}` structure
+  - Improved organization when saving stage configurations to the `stages/` subdirectory
+
+### Technical Details
+- Solution detection uses key-set check: `{"policy", "EGM", "timing"}` to identify Solution dictionaries
+- Branch dictionary detection identifies dicts containing Solution objects and serializes each branch separately
+- Re-hydration applies to both `sol.pkl` and `sim.pkl` files
+- Uses `Solution.from_dict()` to properly reconstruct the object with all its attributes
+
+## [0.1.8.dev3] - 2024-12-26
+
+### Added
+- **Folder-Based Config Loading**:
+  - Added `load_config` helper function in `dynx.stagecraft.io` to load configurations from a structured directory
+  - Expected folder structure:
+    ```
+    config_dir/
+    ├── master.yml
+    ├── stages/
+    │   ├── stage1.yml
+    │   └── stage2.yaml    # Both .yml and .yaml extensions supported
+    └── connections.yml
+    ```
+  - Returns a dictionary with keys "master", "stages", and "connections"
+  - Supports both `.yml` and `.yaml` file extensions for stage configurations
+  - Stage names are automatically uppercased to ensure consistency with Stage object names
+  
+### Changed
+- **Refactored `load_circuit`**:
+  - Now accepts only a directory path (no more file/zip arguments)
+  - Uses the new `load_config` helper internally
+  - Added `restore_data` parameter (default True) to control whether solution/distribution data is restored
+  - Improved error messages for missing files and directories
+- **Stage Name Normalization**:
+  - Stage configuration keys are now automatically uppercased when loading (e.g., `tenu.yml` → `"TENU"` key)
+  - Ensures compatibility regardless of filename casing conventions
+
+### Fixed
+- **Import and Path Handling**:
+  - Added missing `argparse` import for CLI functionality
+  - Wrapped paths in `str()` for FileNotFoundError messages to avoid Python 3.8 compatibility issues
+  - Confirmed `.yaml` extension support in `_copy_configs` (already present)
+  
+### Improved
+- **Test Suite Updates**:
+  - Updated `tests/saver/test_saver.py` to use folder-based configurations
+  - Added dedicated test for `load_config` function
+  - Added test for verifying folder structure after save
+  - Added tests for `.yaml` file extension support
+
+### Migration Notes
+* If you were passing individual YAML files to `load_circuit`, update to pass only the directory path
+* Config loading now expects the standard folder structure with `master.yml`, `connections.yml`, and `stages/` subdirectory
+* The `load_config` function can be used standalone to load configurations for custom workflows
+* Stage configuration files can use either `.yml` or `.yaml` extensions
+
+## [0.1.8.dev2] - 2024-12-26
+
+### Changed
+- **Module Renaming**:
+  - Renamed `config_loader` module to `makemod` for better clarity and naming consistency
+  - Updated all imports throughout the codebase from `dynx.stagecraft.config_loader` to `dynx.stagecraft.makemod`
+  - Updated test files to use the new module name
+  - Fixed `saver.py` to properly load YAML configurations and pass them as dictionaries to `initialize_model_Circuit`
+  - Updated saver.py to io.py for clarity. 
+
+### Migration Notes
+* Update all imports: Change `from dynx.stagecraft.config_loader import ...` to `from dynx.stagecraft.makemod import ...`
+* The functionality remains the same - only the module name has changed
+* The main function `initialize_model_Circuit` and helper functions like `compile_all_stages` retain their original names
+
+Refactor
+## [0.1.8.dev1] - 2025-05-16
+
+### Added
+* New `Solution` container class in `stagecraft.solmaker` for storing stage solutions
+* Numba-compatible solution storage with support for arbitrary-dimensional arrays
+* Dual access pattern (attribute and dictionary-style) for all solution fields
+* Support for nested policy dictionaries and EGM layer storage
+* Save/load functionality using NPZ + JSON format
+* Comprehensive unit tests for the Solution container
+
+
+
+### Migration Notes
+* Existing code accessing `stage.dcsn.sol["policy"]` should now use `stage.dcsn.sol.policy["c"]` for consumption policy
+* Housing/service policies are now accessed as `sol.policy["H"]` and `sol.policy["S"]` respectively
+* EGM grids are accessed via `sol.EGM.refined.e` instead of `sol["EGM"]["refined"]["e"]`
+* The Solution object can be converted to/from plain dicts using `as_dict()` and `from_dict()` methods
+
 ## [0.1.8.dev0] - 2025-05-16
 
 * MPI circuit runner does not pickle model classes and only gathers and returns results from rank 0.
@@ -882,3 +1178,34 @@ All notable changes to CircuitCraft will be documented in this file.
 - **Enhanced Eulerian Sub-Graphs Visualization for Pension Models**:
   - Added visualization scripts that accurately represent the computational structure of pension models using Eulerian sub-graphs
   - Created `
+
+## [0.1.8.dev7] - YYYY-MM-DD
+
+### Added
+- **Config Override in `load_circuit`**:
+  - Introduced `cfg_override` parameter to `dynx.stagecraft.io.load_circuit`.
+  - Allows callers to provide an in-memory configuration dictionary, bypassing the loading of YAML files from the saved bundle.
+  - This is useful for re-running models with modified parameters without altering the saved bundle, or for loading bundles where on-disk configs might be stale or malformed.
+  - Added a validation step to ensure `cfg_override` contains the required keys: "master", "stages", and "connections".
+
+### Changed
+- **`CircuitRunner` Integration**:
+  - `dynx.runner.circuit_runner.CircuitRunner` now utilizes the `cfg_override` feature.
+  - When `load_if_exists` is true (or `__runner.mode` is "load"), `CircuitRunner` first patches the `base_cfg` with the current parameter vector (`x`) to create a `cfg_fresh`.
+  - This `cfg_fresh` is then passed as `cfg_override` to `load_circuit`.
+  - This ensures that loaded models are always initialized with parameters consistent with the current sweep iteration, preventing issues with stale on-disk configurations (e.g., "float() argument must be a string or a real number, not 'list'" error due to incorrect linspace parsing from an old config).
+- **Type Hint Update**:
+  - Updated the type hint for `cfg_override` in `CircuitRunner._maybe_load_bundle` to `Optional[Dict[str, Any]]`.
+
+### Fixed
+- **Stale Configuration Issue**:
+  - Addresses a bug where loading a previously saved model bundle could use outdated configuration files from disk, leading to errors if the configuration schema or parameter types had changed (e.g., linspace parameters being loaded as lists instead of being evaluated).
+  - By using `cfg_override`, the model is now always initialized with a configuration that is consistent with the current `CircuitRunner`'s `base_cfg` and the parameter vector `x`.
+
+### Documentation
+- **Unit Test**:
+  - Added `test_cfg_override_load` to `tests/unit/test_runner_deviation_comprehensive.py` to verify the config override mechanism.
+
+### Migration Notes
+- This change is backward compatible. Existing code that calls `load_circuit` without `cfg_override` will continue to load configurations from disk as before.
+- If using `CircuitRunner` with `load_if_exists=True`, models loaded from disk will now be fresher and less prone to errors caused by stale configurations.

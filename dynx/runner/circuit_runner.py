@@ -9,24 +9,36 @@ utilities for parallel execution with MPI.
 Note — samplers should use `np.random.default_rng` for side-effect-free randomness.
 """
 
+import json
 import pickle
 import copy
 import hashlib
-import json
-import time
 import warnings
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import yaml
 
 try:
     from mpi4py import MPI
+
     HAS_MPI = True
 except ImportError:
     HAS_MPI = False
 
 from dynx.runner.telemetry import RunRecorder
+
+# Import save/load functions and compile_all_stages
+try:
+    from dynx.stagecraft.io import save_circuit, load_circuit
+    from dynx.stagecraft.makemod import compile_all_stages
+
+    HAS_IO = True
+except ImportError:
+    HAS_IO = False
+    warnings.warn("dynx.stagecraft.io not available; save/load functionality disabled")
 
 
 def set_deep(d: Dict[str, Any], path: str, val: Any) -> None:
@@ -57,6 +69,9 @@ class CircuitRunner:
     CircuitRunner is designed to efficiently run economic models with different
     parameter values. It handles configuration patching and metric collection.
 
+    Supports disk-based save/load functionality to avoid re-solving models
+    with identical parameters.
+
     Attributes:
         base_cfg: Base configuration dictionary for the model
         param_paths: List of parameter paths to patch (in the form "path.to.param")
@@ -65,7 +80,15 @@ class CircuitRunner:
         simulator: Optional function to simulate a solved model
         metric_fns: Optional dictionary of functions that compute metrics from a model
         cache: Whether to cache results based on parameter values
+        output_root: Parent directory where bundles are written/searched
+        bundle_prefix: First part of every bundle folder name
+        save_by_default: If True, every solved model is persisted
+        load_if_exists: If True, run() will look for existing bundles and load instead of solving
+        hash_len: Number of hex chars to keep from MD5 hash
         _cache: Internal cache of (parameter vector, metrics) pairs
+        method_param_path: Path to parameter that determines method subdirectory for bundles.
+                          Default is "master.methods.upper_envelope". Set to None to disable
+                          method-based bundle organization (stores bundles flat).
     """
 
     def __init__(
@@ -79,6 +102,14 @@ class CircuitRunner:
         sampler: Optional[Any] = None,
         cache: bool = False,
         validate_paths: bool = False,
+        # New bundle management parameters
+        output_root: Optional[Union[str, Path]] = None,
+        bundle_prefix: str = "run",
+        save_by_default: bool = False,
+        load_if_exists: bool = False,
+        hash_len: int = 8,
+        config_src: Optional[Union[str, Path, Dict[str, Any], List[Any]]] = None,
+        method_param_path: Optional[str] = "master.methods.upper_envelope",
     ):
         """
         Initialize a CircuitRunner.
@@ -93,6 +124,15 @@ class CircuitRunner:
             sampler: Optional sampler to use for generating parameter values (deprecated)
             cache: Whether to cache results based on parameter values
             validate_paths: Whether to validate that parameter paths exist in the configuration
+            output_root: Parent directory for bundle storage. If None, saving is disabled unless save_model=True is passed to run()
+            bundle_prefix: First part of every bundle folder name
+            save_by_default: If True, every solved model is persisted unless explicitly overridden at call-time
+            load_if_exists: If True, run() will first look for an existing bundle and load it instead of solving
+            hash_len: Number of hex chars to keep from the MD5 hash of the parameter vector
+            config_src: Source configuration to pass to save_circuit. If None, uses base_cfg
+            method_param_path: Path to parameter that determines method subdirectory for bundles.
+                              Default is "master.methods.upper_envelope". Set to None to disable
+                              method-based bundle organization (stores bundles flat).
         """
         if sampler is not None:
             warnings.warn(
@@ -101,7 +141,7 @@ class CircuitRunner:
                 DeprecationWarning,
                 stacklevel=2,
             )
-            
+
         self.base_cfg = copy.deepcopy(base_cfg)
         self.param_paths = param_paths
         self.model_factory = model_factory
@@ -110,68 +150,223 @@ class CircuitRunner:
         self.simulator = simulator
         self.cache = cache
         self._cache = {} if cache else None
-        
+
+        # Bundle management attributes
+        self.output_root = Path(output_root).expanduser().resolve() if output_root else None
+        self.bundle_prefix = bundle_prefix
+        self.save_by_default = save_by_default
+        self.load_if_exists = load_if_exists
+        self.hash_len = hash_len
+        self.config_src = config_src  # Store original config source for saving
+        self.method_param_path = method_param_path
+
         # Validate parameter paths if requested
         if validate_paths:
             self._validate_param_paths()
-    
+
+        # Check if IO functionality is available when bundle features are requested
+        if (self.output_root or save_by_default or load_if_exists) and not HAS_IO:
+            warnings.warn(
+                "Bundle save/load functionality requires dynx.stagecraft.io but it's not available. "
+                "Bundle features will be disabled."
+            )
+
     def _validate_param_paths(self) -> None:
         """
         Validate that all parameter paths exist in the configuration.
-        
+
         Raises:
             ValueError: If a parameter path does not exist in the base configuration.
         """
         for path in self.param_paths:
             keys = path.split(".")
             d = self.base_cfg
-            
+
             try:
                 for key in keys[:-1]:
                     d = d[key]
-                
+
                 # Check if final key exists (but don't access it yet)
                 if keys[-1] not in d:
                     raise KeyError
-                
+
             except (KeyError, TypeError):
                 raise ValueError(f"Parameter path '{path}' not found in configuration")
+
+    def _hash_param_vec(self, x: np.ndarray) -> str:
+        """
+        Return hex string hash of parameter vector.
+
+        If method_param_path is set, excludes the method parameter from the hash
+        so that different methods with same other parameters get same hash.
+
+        Args:
+            x: Parameter vector
+
+        Returns:
+            First hash_len characters of MD5 hash
+        """
+        # Create a copy for hashing
+        x_for_hash = x.copy()
+
+        # If method-aware, exclude method parameter from hash
+        if self.method_param_path and self.method_param_path in self.param_paths:
+            param_dict = self.unpack(x)
+            # Build array excluding the method parameter
+            param_paths_no_method = [p for p in self.param_paths if p != self.method_param_path]
+            if param_paths_no_method:
+                # Build array directly without mutating instance
+                x_for_hash = np.array([param_dict[p] for p in param_paths_no_method], dtype=object)
+            else:
+                # If only method parameter, use empty array
+                x_for_hash = np.array([], dtype=object)
+
+        key_bytes = pickle.dumps(x_for_hash, protocol=5)
+        full_hash = hashlib.md5(key_bytes).hexdigest()
+        return full_hash[: self.hash_len]
+
+    def _bundle_path(self, x: np.ndarray) -> Optional[Path]:
+        """
+        Build directory path for bundle using output_root, bundle_prefix, and hash_len.
+
+        If method_param_path is set, includes method subdirectory:
+        output_root/bundles/<hash>/<METHOD>/
+
+        Otherwise uses flat structure:
+        output_root/bundles/<hash>/
+
+        Args:
+            x: Parameter vector
+
+        Returns:
+            Path to bundle directory, or None if output_root not set
+        """
+        if not self.output_root:
+            return None
+
+        hash_str = self._hash_param_vec(x)
+
+        # Build base bundle path
+        if self.method_param_path:
+            # Method-aware mode: output_root/bundles/<hash>/<METHOD>/
+            bundle_base = self.output_root / "bundles" / hash_str
+
+            # Extract method value from parameter vector
+            param_dict = self.unpack(x)
+            method_value = param_dict.get(self.method_param_path, "default")
+
+            # Sanitize method value for use as directory name
+            if isinstance(method_value, str):
+                method_dir = method_value.replace("/", "_").replace("\\", "_")
+            else:
+                method_dir = str(method_value).replace("/", "_").replace("\\", "_")
+
+            bundle_path = bundle_base / method_dir
+        else:
+            # Method-less mode: output_root/bundles/<hash>/
+            bundle_path = self.output_root / "bundles" / hash_str
+
+        # Check for MPI rank collision potential and append rank if needed
+        if HAS_MPI:
+            try:
+                comm = MPI.COMM_WORLD
+                rank = comm.Get_rank()
+                size = comm.Get_size()
+
+                # If running under MPI with multiple ranks, check for potential collisions.
+                # Note: This is a local check, so concurrent ranks might both see the path
+                # as non-existent and try to create it. This is generally fine since:
+                # 1. Parameter vectors are typically scattered uniquely across ranks
+                # 2. Filesystem operations usually handle concurrent directory creation
+                # For absolute safety with identical parameters across ranks, consider
+                # adding rank suffix unconditionally when size > 1.
+                if size > 1:
+                    # Check if the base path would exist (potential collision)
+                    if bundle_path.exists():
+                        # In method-aware mode, append rank to method dir
+                        if self.method_param_path:
+                            bundle_path = bundle_path.parent / f"{method_dir}_r{rank}"
+                        else:
+                            # In flat mode, append rank to hash
+                            bundle_path = self.output_root / "bundles" / f"{hash_str}_r{rank}"
+            except:
+                # If MPI detection fails, proceed without rank suffix
+                pass
+
+        return bundle_path
     
+
+    def _maybe_load_bundle(
+        self,
+        path: Path,
+        cfg_override: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Any]:
+        """
+        Wrapper around load_circuit catching FileNotFoundError.
+
+        Args:
+            path: Path to bundle directory
+            cfg_override: Optional configuration to override loaded configs
+
+        Returns:
+            ModelCircuit if loaded successfully, None otherwise
+        """
+        if not HAS_IO or not path or not path.exists():
+            return None
+
+        try:
+            model = load_circuit(path, cfg_override=cfg_override)
+            return model
+        except FileNotFoundError:
+            return None
+        except Exception as e:
+            warnings.warn(f"Failed to load bundle from {path}: {e}")
+            # Delete broken bundle to avoid hitting same error repeatedly
+            try:
+                import shutil
+
+                if path.exists():
+                    shutil.rmtree(path)
+                    warnings.warn(f"Removed broken bundle directory: {path}")
+            except Exception as cleanup_error:
+                warnings.warn(f"Failed to clean up broken bundle: {cleanup_error}")
+            return None
+
     def pack(self, d: Dict[str, Any]) -> np.ndarray:
         """
         Pack a dictionary of parameter values into a numpy array.
-        
+
         Args:
             d: Dictionary mapping parameter paths to values
-            
+
         Returns:
             Parameter vector with dtype=object for supporting mixed types
-            
+
         Raises:
             ValueError: If a parameter path in d is not in param_paths
         """
         # Create array with object dtype to support mixed types
         x = np.empty(len(self.param_paths), dtype=object)
-        
+
         # Fill array based on parameter paths order
         for i, path in enumerate(self.param_paths):
             if path in d:
                 x[i] = d[path]
             else:
                 raise ValueError(f"Parameter path '{path}' not found in input dictionary")
-        
+
         return x
-    
+
     def unpack(self, x: np.ndarray) -> Dict[str, Any]:
         """
         Unpack a parameter vector into a dictionary.
-        
+
         Args:
             x: Parameter vector
-            
+
         Returns:
             Dictionary mapping parameter paths to values
-            
+
         Raises:
             ValueError: If the parameter vector length doesn't match param_paths
         """
@@ -180,13 +375,13 @@ class CircuitRunner:
                 f"Parameter vector length ({len(x)}) doesn't match "
                 f"number of parameters ({len(self.param_paths)})"
             )
-        
+
         result = {}
         for i, path in enumerate(self.param_paths):
             result[path] = x[i]
-            
+
         return result
-    
+
     def patch_config(self, param_vec: np.ndarray) -> Dict[str, Any]:
         """
         Create a patched configuration by applying parameter values.
@@ -205,20 +400,18 @@ class CircuitRunner:
                 f"Parameter vector length ({len(param_vec)}) doesn't match "
                 f"number of parameters ({len(self.param_paths)})"
             )
-        
+
         # Deep copy to avoid modifying the original
         cfg = copy.deepcopy(self.base_cfg)
-        
+
         # Apply each parameter value
         for i, path in enumerate(self.param_paths):
             set_deep(cfg, path, param_vec[i])
-        
+
         return cfg
-    
+
     def run(
-        self, 
-        x: np.ndarray, 
-        return_model: bool = False
+        self, x: np.ndarray, *, return_model: bool = False, save_model: Optional[bool] = None
     ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], Any]]:
         """
         Run a model with the given parameter vector and collect metrics.
@@ -226,6 +419,7 @@ class CircuitRunner:
         Args:
             x: Parameter vector
             return_model: Whether to return the model instance
+            save_model: Override save_by_default for this single call
 
         Returns:
             dict[str, Any]: Dictionary of metrics
@@ -234,53 +428,177 @@ class CircuitRunner:
         Raises:
             ValueError: If x doesn't match the number of parameters
         """
-        if self.cache:
-            # Hash the parameter vector for caching
-            if x.dtype == object:
-                key_bytes = pickle.dumps(x, protocol=5)
-            else:
-                key_bytes = x.tobytes()
-            key = hashlib.md5(key_bytes).hexdigest()
-            
-            if key in self._cache:
-                if return_model:
-                    return self._cache[key], None
-                return self._cache[key]
-        
-        # Create a new configuration with parameters patched
-        cfg = self.patch_config(x)
-        
-        # Create model
-        model = self.model_factory(cfg)
-        
-        # Create recorder for metrics
+        # Unpack parameters and extract mode flag
+        param_dict = self.unpack(x)
+        mode_flag = param_dict.pop("__runner.mode", None)
+
+        # Determine load/save behavior
+        force_load = (mode_flag == "load") or (self.load_if_exists and mode_flag != "solve")
+        want_save = save_model if save_model is not None else self.save_by_default
+
+        # Get bundle path
+        bundle_path = self._bundle_path(x)
+
+        # Compute cache key (always compute, use only if cache enabled)
+        if x.dtype == object:
+            key_bytes = pickle.dumps(x, protocol=5)
+        else:
+            key_bytes = x.tobytes()
+        key = hashlib.md5(key_bytes).hexdigest()
+
+        # Check cache first if enabled
+        model = None
+        if self.cache and key in self._cache:
+            if return_model:
+                return self._cache[key], None
+            return self._cache[key]
+
+        # 1. Attempt load if requested and bundle exists
         recorder = RunRecorder()
-        
-        # Solve model
-        self.solver(model, recorder=recorder)
-        
-        # Run simulator if provided
-        if self.simulator is not None:
-            self.simulator(model, recorder=recorder)
-        
-        # Collect metrics from functions
+        loaded_from_bundle = False  # Initialize for clarity
+        cfg_fresh = self.patch_config(x)   # already deep-copied & parameter-patched
+        if force_load and bundle_path and bundle_path.exists():
+            model = self._maybe_load_bundle(bundle_path, cfg_override=cfg_fresh)
+            if model is not None:
+                # Successfully loaded, skip solving
+                # Store the fact that this was loaded for manifest purposes
+                loaded_from_bundle = True
+
+        # 2. Otherwise build and solve
+        if model is None:
+            # Create a new configuration with parameters patched
+            cfg = self.patch_config(x)
+
+            # Create model
+            model = self.model_factory(cfg)
+
+            # Solve model
+            self.solver(model, recorder=recorder)
+
+            # Run simulator if provided
+            if self.simulator is not None:
+                self.simulator(model, recorder=recorder)
+
+        # 3. Persist if requested (or update manifest if loaded)
+        if bundle_path and HAS_IO and (want_save or loaded_from_bundle):
+            try:
+                if want_save and not loaded_from_bundle:
+                    # Create parent directory if needed
+                    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Use stored config_src if available, otherwise create container from base_cfg
+                    if self.config_src is not None:
+                        config_source = self.config_src
+                    else:
+                        # Create synthetic container as fallback
+                        config_source = {
+                            "master": self.base_cfg,
+                            "stages": {},  # Will be populated if stages exist in base_cfg
+                            "connections": {},  # Will be populated if connections exist in base_cfg
+                        }
+
+                        # Extract stages and connections if they exist in base_cfg
+                        if "stages" in self.base_cfg:
+                            config_source["stages"] = self.base_cfg["stages"]
+                        if "connections" in self.base_cfg:
+                            config_source["connections"] = self.base_cfg["connections"]
+
+                    saved_path = save_circuit(
+                        model, bundle_path.parent, config_source, model_id=bundle_path.name
+                    )
+                else:
+                    # Bundle was loaded, just update manifest
+                    saved_path = bundle_path
+
+                # Update manifest with runner-specific fields (for both save and load cases)
+                manifest_path = saved_path / "manifest.yml"
+                if manifest_path.exists():
+                    manifest = yaml.safe_load(manifest_path.read_text())
+                else:
+                    manifest = {}
+
+                # Add bundle-specific fields
+                bundle_info = {
+                    "hash": self._hash_param_vec(x),
+                    "prefix": self.bundle_prefix,
+                }
+
+                # Add MPI rank if available
+                if HAS_MPI:
+                    try:
+                        comm = MPI.COMM_WORLD
+                        bundle_info["saved_by_rank"] = comm.Get_rank()
+                    except:
+                        bundle_info["saved_by_rank"] = 0
+                else:
+                    bundle_info["saved_by_rank"] = 0
+
+                manifest["bundle"] = bundle_info
+
+                # Add parameters section (stringify Path objects for YAML safety)
+                manifest["parameters"] = {
+                    k: (str(v) if isinstance(v, Path) else v) for k, v in param_dict.items()
+                }
+                # Add back the mode flag if it was present (for both save and load cases)
+                if mode_flag:
+                    manifest["parameters"]["__runner.mode"] = mode_flag
+
+                # Write updated manifest
+                with manifest_path.open("w") as f:
+                    yaml.safe_dump(manifest, f, sort_keys=False)
+
+            except Exception as e:
+                warnings.warn(f"Failed to save bundle to {bundle_path}: {e}")
+
+        # 4. Collect metrics from functions
         metrics = {}
+
+        # Pre-compute metric signatures for efficiency
+        import inspect
+
+        metric_signatures = {}
         for name, fn in self.metric_fns.items():
-            metrics[name] = fn(model)
-        
-        # Add metrics from recorder
-        metrics.update(recorder.metrics)
-        
-        # Cache result
+            try:
+                sig = inspect.signature(fn)
+                metric_signatures[name] = sig.parameters
+            except Exception:
+                metric_signatures[name] = None
+
+        for name, fn in self.metric_fns.items():
+            try:
+                # Check if metric accepts keyword arguments
+                params = metric_signatures.get(name)
+                if params and "_runner" in params and "_x" in params:
+                    # New-style metric with context
+                    metrics[name] = fn(model, _runner=self, _x=x)
+                else:
+                    # Legacy metric that only accepts model
+                    metrics[name] = fn(model)
+
+                # Add metrics from recorder
+                metrics.update(recorder.metrics)
+
+            except Exception as e:
+                import warnings
+
+                warnings.warn(f"Metric {name} failed with new signature, trying legacy: {e}")
+                try:
+                    metrics[name] = fn(model)
+                except Exception as e2:
+                    warnings.warn(f"Metric {name} failed completely: {e2}")
+                    metrics[name] = np.nan
+
+        # Cache result if caching enabled
         if self.cache:
             self._cache[key] = metrics
-        
+
         if return_model:
             return metrics, model
         return metrics
 
+
 def mpi_map(
-    runner: CircuitRunner,          # ← unchanged signature
+    runner: CircuitRunner,  # ← unchanged signature
     xs: np.ndarray,
     return_models: bool = False,
     mpi: bool = True,
@@ -301,6 +619,8 @@ def mpi_map(
         list so the caller can still unpack the tuple.
     mpi : bool, default True
         Try to parallelise with MPI if ``mpi4py`` is available.
+    comm : MPI.Comm, optional
+        MPI communicator to use. If None, will try to detect MPI.COMM_WORLD
 
     Returns
     -------
@@ -316,41 +636,42 @@ def mpi_map(
     """
     if xs.ndim != 2:
         raise ValueError(f"Expected a 2-D array, got {xs.ndim}-D")
-    
-    
-    if comm is None:
-        HAS_MPI = False
-    elif comm.Get_size() > 1:
-        HAS_MPI = True
-    else:
-        HAS_MPI = False
 
-    use_mpi = mpi and HAS_MPI
+    # Determine if we should use MPI (avoid shadowing module-level HAS_MPI)
+    mpi_available = False
+    if mpi and HAS_MPI:
+        if comm is None:
+            try:
+                comm = MPI.COMM_WORLD
+                mpi_available = comm.Get_size() > 1
+            except:
+                mpi_available = False
+        else:
+            mpi_available = comm.Get_size() > 1
 
     # ------------------------------------------------------------------
     # 1) Distribute rows
     # ------------------------------------------------------------------
-    if use_mpi:
-        #comm  = MPI.COMM_WORLD
-        rank  = comm.Get_rank()
-        size  = comm.Get_size()
+    if mpi_available:
+        rank = comm.Get_rank()
+        size = comm.Get_size()
 
         chunks = np.array_split(xs, size) if rank == 0 else None
-        chunk  = comm.scatter(chunks, root=0)
+        chunk = comm.scatter(chunks, root=0)
     else:
-        rank  = 0
+        rank = 0
         chunk = xs
 
     # ------------------------------------------------------------------
     # 2) Run locally
     # ------------------------------------------------------------------
     local_metrics: list[dict] = []
-    local_models:  list[Any] | None = [] if (return_models and not use_mpi) else None
+    local_models: list[Any] | None = [] if (return_models and not mpi_available) else None
 
     for row in chunk:
         if return_models:
             metrics, model = runner.run(row, return_model=True)
-            if local_models is not None:          # single-proc case
+            if local_models is not None:  # single-proc case
                 local_models.append(model)
         else:
             metrics = runner.run(row)
@@ -365,35 +686,94 @@ def mpi_map(
     # ------------------------------------------------------------------
     # 3) Build local DataFrame
     # ------------------------------------------------------------------
-    param_df   = pd.DataFrame(chunk, columns=runner.param_paths)
+    param_df = pd.DataFrame(chunk, columns=runner.param_paths)
     metrics_df = pd.DataFrame(local_metrics)
-    local_df   = pd.concat([param_df, metrics_df], axis=1)
+    local_df = pd.concat([param_df, metrics_df], axis=1)
 
     # ------------------------------------------------------------------
     # 4) Gather to rank 0 (if MPI)
     # ------------------------------------------------------------------
-    if use_mpi:
+    if mpi_available:
         all_dfs = comm.gather(local_df, root=0)
 
         if rank == 0:
             df = pd.concat(all_dfs, ignore_index=True)
+            # Write design matrix CSV file after sweep completes
+            _write_design_matrix_csv(runner, xs)
+
             if return_models:
-                return df, []          # models stayed on workers
+                return df, []  # models stayed on workers
             return df
-        return None                    # workers return nothing useful
+        return None  # workers return nothing useful
 
     # ------------------------------------------------------------------
     # 5) Single-process return
     # ------------------------------------------------------------------
+    # Write design matrix CSV file after sweep completes (single-process)
+    _write_design_matrix_csv(runner, xs)
+
     if return_models:
         return local_df, local_models  # type: ignore[return-value]
     return local_df
 
 
+def _write_design_matrix_csv(runner: CircuitRunner, xs: np.ndarray) -> None:
+    """
+    Write design matrix CSV file with parameter hash and bundle directory mappings.
+
+    Args:
+        runner: CircuitRunner instance
+        xs: Full design matrix (2D array)
+    """
+    if not runner.output_root:
+        return  # No output directory configured
+
+    try:
+        # Create design matrix DataFrame
+        df_design = pd.DataFrame(xs, columns=runner.param_paths)
+        df_design["param_hash"] = [runner._hash_param_vec(row) for row in xs]
+
+        # Get relative bundle paths
+        bundle_dirs = []
+        for row in xs:
+            bundle_path = runner._bundle_path(row)
+            if bundle_path:
+                # Get path relative to bundles directory
+                try:
+                    rel_path = bundle_path.relative_to(runner.output_root / "bundles")
+                    bundle_dirs.append(str(rel_path))
+                except ValueError:
+                    # If not relative to bundles, use full name
+                    bundle_dirs.append(bundle_path.name)
+            else:
+                bundle_dirs.append("")
+
+        df_design["bundle_dir"] = bundle_dirs
+
+        # Output file path
+        output_path = Path(runner.output_root) / "design_matrix.csv"
+
+        # Append to existing file if it exists, avoiding duplicates (last-wins policy)
+        if output_path.exists():
+            try:
+                existing_df = pd.read_csv(output_path)
+                # Combine and remove duplicates based on param_hash, keeping last occurrence
+                combined_df = pd.concat([existing_df, df_design], ignore_index=True)
+                df_design = combined_df.drop_duplicates(subset=["param_hash"], keep="last")
+            except Exception as e:
+                warnings.warn(f"Failed to read existing design matrix: {e}, overwriting")
+
+        # Write the updated design matrix
+        df_design.to_csv(output_path, index=False)
+
+    except Exception as e:
+        warnings.warn(f"Failed to write design matrix CSV: {e}")
+
+
 def plot_metrics(
-    df: pd.DataFrame, 
-    metric_col: str, 
-    param_col: str, 
+    df: pd.DataFrame,
+    metric_col: str,
+    param_col: str,
     second_param_col: Optional[str] = None,
 ) -> None:
     """Plot metrics from a parameter sweep."""
@@ -403,11 +783,11 @@ def plot_metrics(
     except ImportError:
         warnings.warn("matplotlib is required for plotting")
         return
-    
+
     if second_param_col is None:
         # 1D plot
         plt.figure(figsize=(10, 6))
-        plt.plot(df[param_col], df[metric_col], 'o-')
+        plt.plot(df[param_col], df[metric_col], "o-")
         plt.xlabel(param_col)
         plt.ylabel(metric_col)
         plt.grid(True)
@@ -415,23 +795,21 @@ def plot_metrics(
     else:
         # 3D plot
         fig = plt.figure(figsize=(12, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        
+        ax = fig.add_subplot(111, projection="3d")
+
         x = df[param_col].values
         y = df[second_param_col].values
         z = df[metric_col].values
-        
-        surf = ax.plot_trisurf(
-            x, y, z, cmap=cm.viridis, linewidth=0.2, alpha=0.8
-        )
-        
+
+        surf = ax.plot_trisurf(x, y, z, cmap=cm.viridis, linewidth=0.2, alpha=0.8)
+
         ax.set_xlabel(param_col)
         ax.set_ylabel(second_param_col)
         ax.set_zlabel(metric_col)
-        
+
         plt.colorbar(surf)
         plt.title(f"{metric_col} vs {param_col} and {second_param_col}")
-    
+
     plt.tight_layout()
     plt.show()
 
@@ -443,12 +821,12 @@ def plot_errors(df: pd.DataFrame, error_col: str, param_col: str) -> None:
     except ImportError:
         warnings.warn("matplotlib is required for plotting")
         return
-    
+
     plt.figure(figsize=(10, 6))
-    plt.semilogy(df[param_col], df[error_col], 'o-')
+    plt.semilogy(df[param_col], df[error_col], "o-")
     plt.xlabel(param_col)
     plt.ylabel(error_col)
     plt.grid(True)
     plt.title(f"{error_col} vs {param_col}")
     plt.tight_layout()
-    plt.show() 
+    plt.show()

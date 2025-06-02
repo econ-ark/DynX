@@ -19,12 +19,23 @@ from dynx.runner.sampler import (
     BaseSampler, MVNormSampler, FullGridSampler, 
     LatinHypercubeSampler, FixedSampler, build_design
 )
+from dynx.runner import reference_utils
+from dynx.runner import metrics
+from dynx.runner.metrics.deviations import (
+    dev_c_L2, dev_c_Linf, dev_a_L2, dev_a_Linf,
+    dev_v_L2, dev_v_Linf, dev_pol_L2, dev_pol_Linf,
+    make_policy_dev_metric
+)
 
 __all__ = [
     'CircuitRunner', 'RunRecorder', 'mpi_map', 
     'plot_metrics', 'plot_errors',
     'BaseSampler', 'MVNormSampler', 'FullGridSampler', 
-    'LatinHypercubeSampler', 'FixedSampler', 'build_design'
+    'LatinHypercubeSampler', 'FixedSampler', 'build_design',
+    'reference_utils', 'metrics',
+    'dev_c_L2', 'dev_c_Linf', 'dev_a_L2', 'dev_a_Linf',
+    'dev_v_L2', 'dev_v_Linf', 'dev_pol_L2', 'dev_pol_Linf',
+    'make_policy_dev_metric'
 ]
 
 __version__ = "0.1.0"

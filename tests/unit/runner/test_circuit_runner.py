@@ -136,9 +136,13 @@ class TestCircuitRunner:
         # Solver should be called with model
         solver.assert_called_once_with("model", recorder=ANY)
         
-        # Metric functions should be called with model
+        # Metric functions should be called with model and optional keyword args
         for metric_fn in metric_fns.values():
-            metric_fn.assert_called_once_with("model")
+            metric_fn.assert_called_once()
+            call_args = metric_fn.call_args
+            assert call_args[0][0] == "model"
+            # New-style metrics have keyword arguments, legacy don't
+            # Both are valid
         
         # Test cache hit
         model_factory.reset_mock()

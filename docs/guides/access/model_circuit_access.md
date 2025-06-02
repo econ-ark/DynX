@@ -187,7 +187,7 @@ for period in model_circuit.periods_list:
         stage.build_computational_model()
         
 # Alternative: Use compile_all_stages utility
-from src.stagecraft.config_loader import compile_all_stages
+from dynx.stagecraft.makemod import compile_all_stages
 compile_all_stages(model=model_circuit)
 ```
 
@@ -217,4 +217,18 @@ asset_grid = model_circuit.periods_list[0].stages["OWNH"].arvl.grid.a
 # Accessing a solution component in a specific stage
 if model_circuit.periods_list[0].stages["OWNC"].dcsn.sol:
     policy = model_circuit.periods_list[0].stages["OWNC"].dcsn.sol.get("policy")
+```
+
+### Numerically Compile All Stages
+
+After building your ModelCircuit, compile all stages in one go:
+
+```python
+from dynx.stagecraft.makemod import compile_all_stages
+
+# Compile all stages (uses cached compilation if already done)
+compile_all_stages(model)
+
+# Force recompilation even if already compiled
+compile_all_stages(model, force=True)
 ```
