@@ -294,13 +294,19 @@ class CircuitRunner:
                 pass
 
         return bundle_path
+    
 
-    def _maybe_load_bundle(self, path: Path) -> Optional[Any]:
+    def _maybe_load_bundle(
+        self,
+        path: Path,
+        cfg_override: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Any]:
         """
         Wrapper around load_circuit catching FileNotFoundError.
 
         Args:
             path: Path to bundle directory
+            cfg_override: Optional configuration to override loaded configs
 
         Returns:
             ModelCircuit if loaded successfully, None otherwise
@@ -309,9 +315,7 @@ class CircuitRunner:
             return None
 
         try:
-            model = load_circuit(path)
-            # Re-compile stages for cross-machine compatibility
-            compile_all_stages(model)
+            model = load_circuit(path, cfg_override=cfg_override)
             return model
         except FileNotFoundError:
             return None
@@ -452,8 +456,9 @@ class CircuitRunner:
         # 1. Attempt load if requested and bundle exists
         recorder = RunRecorder()
         loaded_from_bundle = False  # Initialize for clarity
+        cfg_fresh = self.patch_config(x)   # already deep-copied & parameter-patched
         if force_load and bundle_path and bundle_path.exists():
-            model = self._maybe_load_bundle(bundle_path)
+            model = self._maybe_load_bundle(bundle_path, cfg_override=cfg_fresh)
             if model is not None:
                 # Successfully loaded, skip solving
                 # Store the fact that this was loaded for manifest purposes

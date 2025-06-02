@@ -17,7 +17,7 @@ import pickle
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, List, Dict, Union
+from typing import Any, List, Dict, Union, Optional
 
 import yaml
 
@@ -313,7 +313,12 @@ def save_circuit(
     return target_dir
 
 
-def load_circuit(saved_dir: Union[str, Path], *, restore_data: bool = True) -> Any:
+def load_circuit(
+    saved_dir: Union[str, Path],
+    *,
+    restore_data: bool = True,
+    cfg_override: Optional[dict] = None,
+) -> Any:
     """
     Load a ModelCircuit from a saved directory.
     
@@ -323,6 +328,8 @@ def load_circuit(saved_dir: Union[str, Path], *, restore_data: bool = True) -> A
         Path to the directory created by save_circuit
     restore_data : bool, default True
         Whether to restore solution/simulation data to perches
+    cfg_override : dict, optional
+        Override configuration dictionary
         
     Returns
     -------
@@ -347,13 +354,19 @@ def load_circuit(saved_dir: Union[str, Path], *, restore_data: bool = True) -> A
     manifest = yaml.safe_load(manifest_path.read_text())
     logger.info(f"Loading ModelCircuit '{manifest.get('model_id', 'unknown')}'")
     
-    # Load configuration files using the new load_config helper
-    configs_dir = saved_dir / "configs"
-    if not configs_dir.exists():
-        raise FileNotFoundError(f"configs directory not found in {str(saved_dir)}")
-    
-    cfg = load_config(configs_dir)
-    
+    # ---------------------------------------------------------------------
+    # 1) decide where configs come from
+    # ---------------------------------------------------------------------
+    if cfg_override is not None:
+        if not {"master", "stages", "connections"} <= set(cfg_override.keys()):
+            raise ValueError("cfg_override must contain 'master', 'stages', 'connections'")
+        cfg = cfg_override  # caller provided a fresh container
+    else:
+        configs_dir = saved_dir / "configs"
+        if not configs_dir.exists():
+            raise FileNotFoundError(f"configs directory not found in {str(saved_dir)}")
+        cfg = load_config(configs_dir)  # ORIGINAL behaviour
+
     # Initialize the model circuit
     circuit = makemod.initialize_model_Circuit(
         master_config=cfg["master"],

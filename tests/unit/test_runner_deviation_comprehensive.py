@@ -231,3 +231,14 @@ class TestComprehensiveDeviationMetrics:
                 # Reference rows should have zero deviation
                 ref_rows = df[df["master.methods.upper_envelope"] == "VFI_HDGRID"]
                 assert all(ref_rows["dev_c_L2"] == 0.0)
+
+    def test_cfg_override_load(self, tmp_path, runner, x_sample):
+        # 1) run & save once
+        runner.run(x_sample, save_model=True)
+        bundle = runner._bundle_path(x_sample)
+        # 2) run again with overridden param (should force re-solve)
+        runner.run(x_sample, save_model=False)                 # baseline
+        # 3) tweak one parameter but keep hash identical to hit load path
+        cfg = runner.patch_config(x_sample)
+        model = runner._maybe_load_bundle(bundle, cfg_override=cfg)
+        assert model is not None

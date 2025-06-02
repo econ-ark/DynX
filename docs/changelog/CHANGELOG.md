@@ -1178,3 +1178,34 @@ All notable changes to CircuitCraft will be documented in this file.
 - **Enhanced Eulerian Sub-Graphs Visualization for Pension Models**:
   - Added visualization scripts that accurately represent the computational structure of pension models using Eulerian sub-graphs
   - Created `
+
+## [0.1.8.dev7] - YYYY-MM-DD
+
+### Added
+- **Config Override in `load_circuit`**:
+  - Introduced `cfg_override` parameter to `dynx.stagecraft.io.load_circuit`.
+  - Allows callers to provide an in-memory configuration dictionary, bypassing the loading of YAML files from the saved bundle.
+  - This is useful for re-running models with modified parameters without altering the saved bundle, or for loading bundles where on-disk configs might be stale or malformed.
+  - Added a validation step to ensure `cfg_override` contains the required keys: "master", "stages", and "connections".
+
+### Changed
+- **`CircuitRunner` Integration**:
+  - `dynx.runner.circuit_runner.CircuitRunner` now utilizes the `cfg_override` feature.
+  - When `load_if_exists` is true (or `__runner.mode` is "load"), `CircuitRunner` first patches the `base_cfg` with the current parameter vector (`x`) to create a `cfg_fresh`.
+  - This `cfg_fresh` is then passed as `cfg_override` to `load_circuit`.
+  - This ensures that loaded models are always initialized with parameters consistent with the current sweep iteration, preventing issues with stale on-disk configurations (e.g., "float() argument must be a string or a real number, not 'list'" error due to incorrect linspace parsing from an old config).
+- **Type Hint Update**:
+  - Updated the type hint for `cfg_override` in `CircuitRunner._maybe_load_bundle` to `Optional[Dict[str, Any]]`.
+
+### Fixed
+- **Stale Configuration Issue**:
+  - Addresses a bug where loading a previously saved model bundle could use outdated configuration files from disk, leading to errors if the configuration schema or parameter types had changed (e.g., linspace parameters being loaded as lists instead of being evaluated).
+  - By using `cfg_override`, the model is now always initialized with a configuration that is consistent with the current `CircuitRunner`'s `base_cfg` and the parameter vector `x`.
+
+### Documentation
+- **Unit Test**:
+  - Added `test_cfg_override_load` to `tests/unit/test_runner_deviation_comprehensive.py` to verify the config override mechanism.
+
+### Migration Notes
+- This change is backward compatible. Existing code that calls `load_circuit` without `cfg_override` will continue to load configurations from disk as before.
+- If using `CircuitRunner` with `load_if_exists=True`, models loaded from disk will now be fresher and less prone to errors caused by stale configurations.
