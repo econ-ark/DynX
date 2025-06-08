@@ -193,37 +193,49 @@ class CircuitRunner:
             except (KeyError, TypeError):
                 raise ValueError(f"Parameter path '{path}' not found in configuration")
 
+    # ------------------------------------------------------------------
+    # ░░  Hashing helper  ░░
+    # ------------------------------------------------------------------
     def _hash_param_vec(self, x: np.ndarray) -> str:
         """
-        Return hex string hash of parameter vector.
+        Compute the bundle-hash for a parameter vector *x*.
 
-        If method_param_path is set, excludes the method parameter from the hash
-        so that different methods with same other parameters get same hash.
+        • Always ignore the auxiliary “__runner.mode” flag  
+          (it only controls load/solve behaviour).  
+        • If *method_param_path* is set, also ignore that entry so that
+          VFI_HDGRID, FUES, … share one hash when the *other* parameters
+          are identical.
 
-        Args:
-            x: Parameter vector
+        Everything else stays in the hash, so changing, say,
+        a preference parameter still yields a different directory.
 
-        Returns:
-            First hash_len characters of MD5 hash
+        Returns
+        -------
+        str   First ``self.hash_len`` hexadecimal digits of MD5 digest.
         """
-        # Create a copy for hashing
-        x_for_hash = x.copy()
+        # 1. Build a dictionary for ease of access
+        param_dict = self.unpack(x)
 
-        # If method-aware, exclude method parameter from hash
-        if self.method_param_path and self.method_param_path in self.param_paths:
-            param_dict = self.unpack(x)
-            # Build array excluding the method parameter
-            param_paths_no_method = [p for p in self.param_paths if p != self.method_param_path]
-            if param_paths_no_method:
-                # Build array directly without mutating instance
-                x_for_hash = np.array([param_dict[p] for p in param_paths_no_method], dtype=object)
-            else:
-                # If only method parameter, use empty array
-                x_for_hash = np.array([], dtype=object)
+        # 2. Build the list of parameter-paths we want to keep
+        ignore = {"__runner.mode"}
+        if self.method_param_path:
+            ignore.add(self.method_param_path)
 
-        key_bytes = pickle.dumps(x_for_hash, protocol=5)
-        full_hash = hashlib.md5(key_bytes).hexdigest()
-        return full_hash[: self.hash_len]
+        keep_paths = [p for p in self.param_paths if p not in ignore]
+
+        # 3. Assemble the *filtered* vector used for hashing
+        if keep_paths:
+            vals_for_hash = np.array([param_dict[p] for p in keep_paths], dtype=object)
+        else:
+            # Edge-case: we ignored every path ⇒ hash an empty byte-string
+            vals_for_hash = np.array([], dtype=object)
+
+        # 4. Feed into MD5
+        key_bytes = pickle.dumps(vals_for_hash, protocol=5)
+        digest = hashlib.md5(key_bytes).hexdigest()
+
+        return digest[: self.hash_len]
+
 
     def _bundle_path(self, x: np.ndarray) -> Optional[Path]:
         """
