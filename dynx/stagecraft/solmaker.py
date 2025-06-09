@@ -471,5 +471,26 @@ class Solution:
     add_to_policy = staticmethod(njit(lambda d, k, a: d.__setitem__(k, a)))
     add_to_EGM = staticmethod(njit(lambda d, k, a: d.__setitem__(k, a)))
 
+    # ------------------------------------------------------------------
+    #  Python pickling interface – make the object pickle/MPI-safe
+    # ------------------------------------------------------------------
+    def __getstate__(self):
+        """
+        Return a picklable representation.
+
+        We simply reuse the existing `as_dict()` helper
+        (which already converts Numba typed.Dict → plain dict
+        and flattens/reshapes arrays).
+        """
+        return self.as_dict()
+
+    def __setstate__(self, state):
+        """
+        Restore from the pickled representation.
+        """
+        tmp = Solution.from_dict(state)
+        # copy all internals over
+        self.__dict__.update(tmp.__dict__)
+
 
 __all__ = ["Solution"] 
