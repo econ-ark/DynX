@@ -21,6 +21,7 @@ Phases of model building:
 
 # Standard library imports
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any, Set, Iterator, Iterable, Tuple
 
@@ -55,6 +56,16 @@ _DEFAULT_CONNECTION_STYLE = 'arc3,rad=0.1'
 logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Check for environment variable to override logging level
+_env_log_level = os.environ.get('MAKEMOD_LOG_LEVEL', '').upper()
+if _env_log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+    logger.setLevel(getattr(logging, _env_log_level))
+    logging.getLogger().setLevel(getattr(logging, _env_log_level))
+elif os.environ.get('MAKEMOD_QUIET', '').lower() in ['true', '1', 'yes']:
+    logger.setLevel(logging.ERROR)
+    logging.getLogger().setLevel(logging.ERROR)
+
 
 # ==================
 # Custom Exceptions

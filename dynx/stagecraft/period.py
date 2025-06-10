@@ -4,6 +4,8 @@ import networkx as nx
 from typing import Dict, Optional, Callable, List, Any, Union, TYPE_CHECKING
 import warnings
 from copy import deepcopy
+import logging
+import os
 
 from dynx.core.circuit_board import CircuitBoard
 from dynx.core.perch import Perch
@@ -12,6 +14,37 @@ from dynx.core.mover import Mover
 # Import Stage only for type checking
 if TYPE_CHECKING:
     from dynx.stagecraft.stage import Stage
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Check for environment variable to override logging level
+_env_log_level = os.environ.get('PERIOD_LOG_LEVEL', '').upper()
+if _env_log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+    logger.setLevel(getattr(logging, _env_log_level))
+    logging.getLogger().setLevel(getattr(logging, _env_log_level))
+elif os.environ.get('PERIOD_QUIET', '').lower() in ['true', '1', 'yes']:
+    logger.setLevel(logging.ERROR)
+    logging.getLogger().setLevel(logging.ERROR)
+
+# ==================
+# Print Control
+# ==================
+
+# Global flag to control print statements
+_PRINT_ENABLED = not os.environ.get('PERIOD_QUIET', '').lower() in ['true', '1', 'yes']
+
+def period_print(*args, **kwargs):
+    """Controlled print function that respects the global print flag."""
+    if _PRINT_ENABLED:
+        print(*args, **kwargs)
+
+def set_period_print_enabled(enabled: bool = True):
+    """Enable or disable print statements in period operations."""
+    global _PRINT_ENABLED
+    _PRINT_ENABLED = enabled
 
 def build_transpose(m: Mover, *, branch_key: str | None = None) -> Mover:
     """Return a new Mover that is the CDC-conform transpose of `m`.
@@ -70,7 +103,7 @@ class Period(CircuitBoard):
         self.forward_graph = nx.DiGraph()  # Stage-level forward graph
         self.backward_graph = nx.DiGraph() # Stage-level backward graph
         # Print initialization message
-        print(f"Initialized Period {time_index}")
+        period_print(f"Initialized Period {time_index}")
 
     def _auto_branch_key(self, src_id: str, existing: dict, direction: str) -> str:
         """
@@ -244,7 +277,7 @@ class Period(CircuitBoard):
         """
         # Add the stage to the stages dictionary
         if stage_id in self.stages:
-            print(f"Warning: Stage {stage_id} already exists in Period {self.time_index}. Overwriting.")
+            period_print(f"Warning: Stage {stage_id} already exists in Period {self.time_index}. Overwriting.")
         self.stages[stage_id] = stage_obj
         
         # Add the stage as a node to both graphs
@@ -254,7 +287,7 @@ class Period(CircuitBoard):
         # NOTE: We intentionally DO NOT add the stage's internal edges to the period's graph
         # Intra-stage connections remain within the stage's own graph
         # Inter-stage connections are added separately through add_connection or similar methods
-        print(f"Added Stage '{stage_id}' to Period {self.time_index} (added {len(stage_obj.perches)} perches)")
+        period_print(f"Added Stage '{stage_id}' to Period {self.time_index} (added {len(stage_obj.perches)} perches)")
 
     def get_stage(self, stage_id: str) -> 'Stage':
         """
@@ -376,14 +409,14 @@ class Period(CircuitBoard):
                 t = build_transpose(m)
                 self._insert_edge(t)
                 created.append(t)
-                print(f"Created transpose mover: {t.source_name} → {t.target_name} ({t.edge_type})")
+                period_print(f"Created transpose mover: {t.source_name} → {t.target_name} ({t.edge_type})")
         
         # Also create transposes for each Stage's internal movers
         for stage_id, stage in self.stages.items():
             if hasattr(stage, "create_transpose_connections"):
                 stage_transposes = stage.create_transpose_connections(edge_type=edge_type)
                 if stage_transposes:
-                    print(f"Created {len(stage_transposes)} transpose movers in Stage {stage_id}")
+                    period_print(f"Created {len(stage_transposes)} transpose movers in Stage {stage_id}")
                     created.extend(stage_transposes)
                     
         return created
@@ -519,7 +552,7 @@ class Period(CircuitBoard):
         # Add the mover to the movers list
         self.movers.append(mover)
         
-        print(f"Added connection Mover: {mover_name} ({source_stage_id}.{source_perch_attr} -> {target_stage_id}.{target_perch_attr})")
+        period_print(f"Added connection Mover: {mover_name} ({source_stage_id}.{source_perch_attr} -> {target_stage_id}.{target_perch_attr})")
 
         # Add connections to the CircuitBoard graph too
         source_id = f"{source_stage_id}.{source_perch_attr}"
@@ -538,7 +571,7 @@ class Period(CircuitBoard):
                 if transpose_branch_key is None:
                     # Use target_stage_id as default branch_key if none is provided
                     transpose_branch_key = target_stage_id
-                    print(f"Warning: Auto-generating branch_key '{transpose_branch_key}' for backward connection to discrete stage '{source_stage_id}'")
+                    period_print(f"Warning: Auto-generating branch_key '{transpose_branch_key}' for backward connection to discrete stage '{source_stage_id}'")
             
             # Recursive call to create the transpose but disable create_transpose to prevent infinite loop
             self.add_connection(
@@ -598,7 +631,7 @@ class Period(CircuitBoard):
         -------
         None
         """
-        print(f"[Period {self.time_index}] Starting backward solve")
+        period_print(f"[Period {self.time_index}] Starting backward solve")
         
         # Get the order of nodes for backward solution (from terminal to initial)
         # Use the backward graph for the order, since we're solving backward
@@ -606,11 +639,11 @@ class Period(CircuitBoard):
         
         # If there are no stages, return early
         if not stage_topo_order:
-            print(f"[Period {self.time_index}] No stages to solve backward.")
+            period_print(f"[Period {self.time_index}] No stages to solve backward.")
             return
         
         # Print the order we'll use for solving
-        print(f"[Period {self.time_index}] Backward solve order: {', '.join(stage_topo_order)}")
+        period_print(f"[Period {self.time_index}] Backward solve order: {', '.join(stage_topo_order)}")
         
         # Process each stage in the backward topological order
         for target_stage_id in stage_topo_order:
@@ -625,13 +658,13 @@ class Period(CircuitBoard):
             
             # Initialize target_stage.cntn.sol as dict if not already
             if not hasattr(target_stage, 'cntn') or not hasattr(target_stage.cntn, 'sol'):
-                print(f"Warning: Target stage {target_stage_id} missing cntn.sol attribute.")
+                period_print(f"Warning: Target stage {target_stage_id} missing cntn.sol attribute.")
             else:
                 if target_stage.cntn.sol is None:
                     target_stage.cntn.sol = {}
                 elif not isinstance(target_stage.cntn.sol, dict) and incoming_edges:
                     # Convert to dict if it's not already and we have incoming edges
-                    print(f"Converting {target_stage_id}.cntn.sol to dict for fan-in.")
+                    period_print(f"Converting {target_stage_id}.cntn.sol to dict for fan-in.")
                     target_stage.cntn.sol = {"default": target_stage.cntn.sol}
             
             # Fan-in: Copy data from all source stages to target stage using branch keys
@@ -658,18 +691,18 @@ class Period(CircuitBoard):
                             target_perch.sol[branch_key] = source_data
                             branch_connections[branch_key] = source_id
                         else:
-                            print(f"Warning: Source perch {source_id}.arvl does not have sol data to connect to target {target_stage_id}.cntn")
+                            period_print(f"Warning: Source perch {source_id}.arvl does not have sol data to connect to target {target_stage_id}.cntn")
             
             # Print branch connections for debugging
             if branch_connections:
                 branch_info = ", ".join([f"{k}: {v}" for k, v in branch_connections.items()])
-                print(f"[Period {self.time_index}] Connected branches to {target_stage_id}: {branch_info}")
+                period_print(f"[Period {self.time_index}] Connected branches to {target_stage_id}: {branch_info}")
             
             # Now solve the target stage (with branch connections set up)
-            print(f"[Period {self.time_index}] Solving backward: {target_stage_id}")
+            period_print(f"[Period {self.time_index}] Solving backward: {target_stage_id}")
             target_stage.solve_backward()
         
-        print(f"[Period {self.time_index}] Backward solve complete")
+        period_print(f"[Period {self.time_index}] Backward solve complete")
 
     def solve_forward(self):
         """
@@ -682,7 +715,7 @@ class Period(CircuitBoard):
         -------
         None
         """
-        print(f"[Period {self.time_index}] Starting forward solve")
+        period_print(f"[Period {self.time_index}] Starting forward solve")
         
         # Get the order of nodes for forward solution (from initial to terminal)
         # Use the forward graph for the order, since we're solving forward
@@ -690,11 +723,11 @@ class Period(CircuitBoard):
         
         # If there are no stages, return early
         if not stage_topo_order:
-            print(f"[Period {self.time_index}] No stages to solve forward.")
+            period_print(f"[Period {self.time_index}] No stages to solve forward.")
             return
         
         # Print the order we'll use for solving
-        print(f"[Period {self.time_index}] Forward solve order: {', '.join(stage_topo_order)}")
+        period_print(f"[Period {self.time_index}] Forward solve order: {', '.join(stage_topo_order)}")
         
         # Process each stage in the forward topological order
         for target_stage_id in stage_topo_order:
@@ -729,21 +762,21 @@ class Period(CircuitBoard):
                                 # Add to incoming dict with branch_key
                                 incoming[branch_key] = source_data
                             else:
-                                print(f"Warning: Source perch {source_id}.cntn does not have dist data to connect to target {target_stage_id}.arvl")
+                                period_print(f"Warning: Source perch {source_id}.cntn does not have dist data to connect to target {target_stage_id}.arvl")
                 
                 # If we collected any incoming data, assign it to target
                 if incoming:
                     incoming_info = ", ".join(list(incoming.keys()))
-                    print(f"[Period {self.time_index}] Connected data to {target_stage_id}: {incoming_info}")
+                    period_print(f"[Period {self.time_index}] Connected data to {target_stage_id}: {incoming_info}")
                     
                     # Assign the collected dict to target stage's arvl.dist
                     target_stage.arvl.dist = incoming
             
             # Now solve the target stage (with connections set up)
-            print(f"[Period {self.time_index}] Solving forward: {target_stage_id}")
+            period_print(f"[Period {self.time_index}] Solving forward: {target_stage_id}")
             target_stage.solve_forward()
         
-        print(f"[Period {self.time_index}] Forward solve complete")
+        period_print(f"[Period {self.time_index}] Forward solve complete")
 
     def get_forward_graph(self) -> nx.DiGraph:
         """Returns the forward stage-to-stage graph within this period.
