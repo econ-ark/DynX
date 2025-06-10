@@ -14,6 +14,7 @@ import pickle
 import copy
 import hashlib
 import warnings
+import inspect
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -279,6 +280,7 @@ class CircuitRunner:
             bundle_path = self.output_root / "bundles" / hash_str
 
         # Check for MPI rank collision potential and append rank if needed
+        """ 
         if HAS_MPI:
             try:
                 comm = MPI.COMM_WORLD
@@ -304,6 +306,7 @@ class CircuitRunner:
             except:
                 # If MPI detection fails, proceed without rank suffix
                 pass
+            """
 
         return bundle_path
     
@@ -422,311 +425,197 @@ class CircuitRunner:
 
         return cfg
 
-    def run(
-        self, x: np.ndarray, *, return_model: bool = False, save_model: Optional[bool] = None
+    def run(                     # noqa: C901
+        self, x: np.ndarray, *,
+        return_model: bool = False,
+        force_load: bool = False,
+        save_bundle: Optional[bool] = None,
+        rank: int = 0,
     ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], Any]]:
-        """
-        Run a model with the given parameter vector and collect metrics.
 
-        Args:
-            x: Parameter vector
-            return_model: Whether to return the model instance
-            save_model: Override save_by_default for this single call
-
-        Returns:
-            dict[str, Any]: Dictionary of metrics
-            model: (Optional) Model instance
-
-        Raises:
-            ValueError: If x doesn't match the number of parameters
-        """
-        # Unpack parameters and extract mode flag
-        param_dict = self.unpack(x)
-        mode_flag = param_dict.pop("__runner.mode", None)
-
-        # Determine load/save behavior
-        force_load = (mode_flag == "load") or (self.load_if_exists and mode_flag != "solve")
-        want_save = save_model if save_model is not None else self.save_by_default
-
-        # Get bundle path
+        cfg         = self.patch_config(x)
         bundle_path = self._bundle_path(x)
+        want_save   = self.save_by_default if save_bundle is None else save_bundle
+        recorder    = RunRecorder()
+        force_load  = self.load_if_exists 
 
-        # Compute cache key (always compute, use only if cache enabled)
-        if x.dtype == object:
-            key_bytes = pickle.dumps(x, protocol=5)
-        else:
-            key_bytes = x.tobytes()
-        key = hashlib.md5(key_bytes).hexdigest()
-
-        # Check cache first if enabled
+        # ------------------------------------------------------------
+        # 1. LOAD (root of comm_solver only)
+        # ------------------------------------------------------------
         model = None
-        if self.cache and key in self._cache:
-            if return_model:
-                return self._cache[key], None
-            return self._cache[key]
+        if force_load and rank == 0:
+            model = self._maybe_load_bundle(bundle_path, cfg_override=cfg)
+            if model is None:
+                raise FileNotFoundError(
+                    f"[runner] bundle {bundle_path} not found or could not be loaded "
+                    f"for parameter vector {x}. Aborting because fallback is disabled."
+                )
 
-        # 1. Attempt load if requested and bundle exists
-        recorder = RunRecorder()
-        loaded_from_bundle = False  # Initialize for clarity
-        cfg_fresh = self.patch_config(x)   # already deep-copied & parameter-patched
-        if force_load and bundle_path and bundle_path.exists():
-            model = self._maybe_load_bundle(bundle_path, cfg_override=cfg_fresh)
-            if model is not None:
-                # Successfully loaded, skip solving
-                # Store the fact that this was loaded for manifest purposes
-                loaded_from_bundle = True
 
-        # 2. Otherwise build and solve
-        if model is None:
-            # Create a new configuration with parameters patched
-            cfg = self.patch_config(x)
-
-            # Create model
+        # ------------------------------------------------------------
+        # 2. SOLVE (only if *not* in force-load mode)
+        # ------------------------------------------------------------
+        if not force_load:
             model = self.model_factory(cfg)
-
-            # Solve model
             self.solver(model, recorder=recorder)
-
-            # Run simulator if provided
             if self.simulator is not None:
                 self.simulator(model, recorder=recorder)
 
-        # 3. Persist if requested (or update manifest if loaded)
-        if bundle_path and HAS_IO and (want_save or loaded_from_bundle):
-            try:
-                if want_save and not loaded_from_bundle:
-                    # Create parent directory if needed
-                    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+            if want_save and rank == 0:
+                bundle_path.parent.mkdir(parents=True, exist_ok=True)
+                save_circuit(model, bundle_path.parent, self.base_cfg,
+                            model_id=bundle_path.name)
 
-                    # Use stored config_src if available, otherwise create container from base_cfg
-                    if self.config_src is not None:
-                        config_source = self.config_src
-                    else:
-                        # Create synthetic container as fallback
-                        config_source = {
-                            "master": self.base_cfg,
-                            "stages": {},  # Will be populated if stages exist in base_cfg
-                            "connections": {},  # Will be populated if connections exist in base_cfg
-                        }
+        # ------------------------------------------------------------
+        # 3. METRICS (root only)
+        # ------------------------------------------------------------
+        metrics: Dict[str, Any] = {}
+        if rank == 0:
+                    # Pre-compute metric signatures for efficiency
+            import inspect
 
-                        # Extract stages and connections if they exist in base_cfg
-                        if "stages" in self.base_cfg:
-                            config_source["stages"] = self.base_cfg["stages"]
-                        if "connections" in self.base_cfg:
-                            config_source["connections"] = self.base_cfg["connections"]
-
-                    saved_path = save_circuit(
-                        model, bundle_path.parent, config_source, model_id=bundle_path.name
-                    )
-                else:
-                    # Bundle was loaded, just update manifest
-                    saved_path = bundle_path
-
-                # Update manifest with runner-specific fields (for both save and load cases)
-                manifest_path = saved_path / "manifest.yml"
-                if manifest_path.exists():
-                    manifest = yaml.safe_load(manifest_path.read_text())
-                else:
-                    manifest = {}
-
-                # Add bundle-specific fields
-                bundle_info = {
-                    "hash": self._hash_param_vec(x),
-                    "prefix": self.bundle_prefix,
-                }
-
-                # Add MPI rank if available
-                if HAS_MPI:
-                    try:
-                        comm = MPI.COMM_WORLD
-                        bundle_info["saved_by_rank"] = comm.Get_rank()
-                    except:
-                        bundle_info["saved_by_rank"] = 0
-                else:
-                    bundle_info["saved_by_rank"] = 0
-
-                manifest["bundle"] = bundle_info
-
-                # Add parameters section (stringify Path objects for YAML safety)
-                manifest["parameters"] = {
-                    k: (str(v) if isinstance(v, Path) else v) for k, v in param_dict.items()
-                }
-                # Add back the mode flag if it was present (for both save and load cases)
-                if mode_flag:
-                    manifest["parameters"]["__runner.mode"] = mode_flag
-
-                # Write updated manifest
-                with manifest_path.open("w") as f:
-                    yaml.safe_dump(manifest, f, sort_keys=False)
-
-            except Exception as e:
-                warnings.warn(f"Failed to save bundle to {bundle_path}: {e}")
-
-        # 4. Collect metrics from functions
-        metrics = {}
-
-        # Pre-compute metric signatures for efficiency
-        import inspect
-
-        metric_signatures = {}
-        for name, fn in self.metric_fns.items():
-            try:
-                sig = inspect.signature(fn)
-                metric_signatures[name] = sig.parameters
-            except Exception:
-                metric_signatures[name] = None
-
-        for name, fn in self.metric_fns.items():
-            try:
-                # Check if metric accepts keyword arguments
-                params = metric_signatures.get(name)
-                if params and "_runner" in params and "_x" in params:
-                    # New-style metric with context
-                    metrics[name] = fn(model, _runner=self, _x=x)
-                else:
-                    # Legacy metric that only accepts model
-                    metrics[name] = fn(model)
-
-                # Add metrics from recorder
-                metrics.update(recorder.metrics)
-
-            except Exception as e:
-                import warnings
-
-                warnings.warn(f"Metric {name} failed with new signature, trying legacy: {e}")
+            metric_signatures = {}
+            for name, fn in self.metric_fns.items():
                 try:
-                    metrics[name] = fn(model)
-                except Exception as e2:
-                    warnings.warn(f"Metric {name} failed completely: {e2}")
-                    metrics[name] = np.nan
+                    sig = inspect.signature(fn)
+                    metric_signatures[name] = sig.parameters
+                except Exception:
+                    metric_signatures[name] = None
 
-        # Cache result if caching enabled
-        if self.cache:
-            self._cache[key] = metrics
+            for name, fn in self.metric_fns.items():
+                try:
+                    # Check if metric accepts keyword arguments
+                    params = metric_signatures.get(name)
+                    if params and "_runner" in params and "_x" in params:
+                        # New-style metric with context
+                        metrics[name] = fn(model, _runner=self, _x=x)
+                    else:
+                        # Legacy metric that only accepts model
+                        metrics[name] = fn(model)
 
-        if return_model:
-            return metrics, model
-        return metrics
+                    # Add metrics from recorder
+                    metrics.update(recorder.metrics)
 
+                except Exception as e:
+                    import warnings
+
+                    warnings.warn(f"Metric {name} failed with new signature, trying legacy: {e}")
+                    try:
+                        metrics[name] = fn(model)
+                    except Exception as e2:
+                        warnings.warn(f"Metric {name} failed completely: {e2}")
+                        metrics[name] = np.nan
+
+        # ------------------------------------------------------------
+        return (metrics, model) if return_model else (metrics, None)
 
 def mpi_map(
-    runner: CircuitRunner,  # ← unchanged signature
+    runner: "CircuitRunner",
     xs: np.ndarray,
+    *,
     return_models: bool = False,
-    mpi: bool = True,
+    mpi: bool = False,
     comm: Optional["MPI.Comm"] = None,
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, List[Any]]]:
+    comm_solver: Optional["MPI.Comm"] = None,
+) -> Tuple[pd.DataFrame, List[Any]]:
     """
-    Map ``runner.run`` over a design matrix, optionally using MPI.
+    Map ``runner.run`` over a design matrix.
 
     Parameters
     ----------
     runner : CircuitRunner
-        Configured runner.
     xs : np.ndarray
         2-D design matrix (n_rows × n_params).
     return_models : bool, default False
-        Return solved model objects **only in single-process mode**.
-        Under MPI they stay on the worker ranks; rank 0 receives an empty
-        list so the caller can still unpack the tuple.
+        Return solved model objects *in single-process mode*.
+        Under MPI they remain on the worker ranks; root receives ``[]``.
     mpi : bool, default True
-        Try to parallelise with MPI if ``mpi4py`` is available.
-    comm : MPI.Comm, optional
-        MPI communicator to use. If None, will try to detect MPI.COMM_WORLD
+        Attempt to use MPI if available (to split across runs)
+    comm : mpi4py.MPI.Comm, optional
+        Communicator to use to split parameters. 
+    comm_solver : mpi4py.MPI.Comm, optional
+        Communicator to use to split solver within a run. 
 
     Returns
     -------
-    pandas.DataFrame
-        Combined parameters + metrics.
     tuple
-        *(df, models)* if ``return_models`` is True.
+        ``(df, models)`` where
 
-    Notes
-    -----
-    Worker ranks always return ``None``; call this from rank 0 and guard
-    accordingly.
+        * **df**   : pandas.DataFrame with parameters and metrics  
+        * **models** : list of model objects (see above rules)
     """
     if xs.ndim != 2:
-        raise ValueError(f"Expected a 2-D array, got {xs.ndim}-D")
-
-    # Determine if we should use MPI (avoid shadowing module-level HAS_MPI)
-    mpi_available = False
-    if mpi and HAS_MPI:
-        if comm is None:
-            try:
-                comm = MPI.COMM_WORLD
-                mpi_available = comm.Get_size() > 1
-            except:
-                mpi_available = False
-        else:
-            mpi_available = comm.Get_size() > 1
+        raise ValueError("`xs` must be a 2-D array")
 
     # ------------------------------------------------------------------
-    # 1) Distribute rows
+    # Detect / configure MPI
     # ------------------------------------------------------------------
-    if mpi_available:
-        rank = comm.Get_rank()
-        size = comm.Get_size()
+    mpi_enabled = False
+    
+    if mpi and comm is not None:
+        mpi_enabled = comm.Get_size() > 1
+    else:
+        comm = None  # ensure serial code below sees `comm is None`
 
+    rank = comm.Get_rank() if mpi_enabled else 0
+    size = comm.Get_size() if mpi_enabled else 1
+
+    rank_solver = comm_solver.Get_rank() if comm_solver is not None else 0
+    size_solver = comm_solver.Get_size() if comm_solver is not None else 1
+
+    # ------------------------------------------------------------------
+    # Scatter rows
+    # ------------------------------------------------------------------
+    if mpi_enabled:
         chunks = np.array_split(xs, size) if rank == 0 else None
         chunk = comm.scatter(chunks, root=0)
     else:
-        rank = 0
         chunk = xs
 
     # ------------------------------------------------------------------
-    # 2) Run locally
+    # Local computation
     # ------------------------------------------------------------------
-    local_metrics: list[dict] = []
-    local_models: list[Any] | None = [] if (return_models and not mpi_available) else None
+    local_metrics: List[dict] = []
+    local_models: List[Any] = []
 
     for row in chunk:
         if return_models:
-            metrics, model = runner.run(row, return_model=True)
-            if local_models is not None:  # single-proc case
-                local_models.append(model)
+            metrics, model = runner.run(row, return_model=True, rank=rank_solver)
+            local_models.append(model)
         else:
-            metrics = runner.run(row)
+            metrics, model = runner.run(row, rank = rank_solver)
 
-        # JSON-encode complex values so DataFrame construction succeeds
+        # JSON-encode any non-scalar metric values
         for k, v in list(metrics.items()):
-            if (not np.isscalar(v)) and (not isinstance(v, str)):
+            if not np.isscalar(v) and not isinstance(v, str):
                 metrics[k] = json.dumps(v)
 
         local_metrics.append(metrics)
 
-    # ------------------------------------------------------------------
-    # 3) Build local DataFrame
-    # ------------------------------------------------------------------
+    # Build local DataFrame
     param_df = pd.DataFrame(chunk, columns=runner.param_paths)
     metrics_df = pd.DataFrame(local_metrics)
     local_df = pd.concat([param_df, metrics_df], axis=1)
 
     # ------------------------------------------------------------------
-    # 4) Gather to rank 0 (if MPI)
+    # Gather to root (MPI) or finalise (serial)
     # ------------------------------------------------------------------
-    if mpi_available:
+    if mpi_enabled:
         all_dfs = comm.gather(local_df, root=0)
 
         if rank == 0:
             df = pd.concat(all_dfs, ignore_index=True)
-            # Write design matrix CSV file after sweep completes
             _write_design_matrix_csv(runner, xs)
+            return df, []  # models live on workers
+        else:
+            return None  # type: ignore[return-value]
 
-            if return_models:
-                return df, []  # models stayed on workers
-            return df
-        return None  # workers return nothing useful
+    # ---------- single-process return ----------
+    if rank_solver == 0:
+        _write_design_matrix_csv(runner, xs)
+    
+    return local_df, (local_models if return_models else [])
 
-    # ------------------------------------------------------------------
-    # 5) Single-process return
-    # ------------------------------------------------------------------
-    # Write design matrix CSV file after sweep completes (single-process)
-    _write_design_matrix_csv(runner, xs)
-
-    if return_models:
-        return local_df, local_models  # type: ignore[return-value]
-    return local_df
 
 
 def _write_design_matrix_csv(runner: CircuitRunner, xs: np.ndarray) -> None:
