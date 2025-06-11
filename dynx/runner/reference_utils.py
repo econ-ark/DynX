@@ -7,7 +7,7 @@ that have been previously solved and saved as bundles.
 
 from pathlib import Path
 from typing import Any, Optional
-
+import warnings
 import numpy as np
 
 from dynx.runner.circuit_runner import CircuitRunner
@@ -20,35 +20,36 @@ def ref_bundle_path(runner: CircuitRunner, x: np.ndarray) -> Optional[Path]:
     """
     Get path to reference bundle directory.
 
-    In method-aware mode, uses DEFAULT_REF_METHOD instead of the method
-    specified in the parameter vector.
+    If runner.ref_params exists, it uses those parameters to construct the
+    path. Otherwise, it falls back to substituting only the method name,
+    which may fail if other parameters like grid sizes differ.
 
     Args:
         runner: CircuitRunner instance
-        x: Parameter vector
+        x: Parameter vector of the current (non-reference) run
 
     Returns:
         Path to reference bundle directory, or None if no output_root
-
-    Note:
-        If method_param_path is not in runner.param_paths, returns the
-        bundle path for the original parameter vector (no substitution).
-        This means the "reference" would be the same as the method being
-        tested, resulting in zero deviation.
     """
-    if not runner.output_root or not runner.method_param_path:
+    if not runner.output_root:
         return None
 
-    # More efficient: directly modify the method parameter index
-    if runner.method_param_path in runner.param_paths:
-        x_ref = x.copy()
-        method_idx = runner.param_paths.index(runner.method_param_path)
-        x_ref[method_idx] = DEFAULT_REF_METHOD
+    if hasattr(runner, 'ref_params') and runner.ref_params is not None:
+        # If reference parameters are stored on the runner, use them directly.
+        # This is the most reliable way to find the baseline bundle.
+        x_ref = runner.ref_params
     else:
-        # If method parameter not found, use original vector
-        x_ref = x
+        # Fallback for older runners or cases where ref_params isn't set:
+        # substitute method name only. This is brittle.
+        warnings.warn("runner.ref_params not found. Falling back to method substitution. "
+                      "This may fail to find the baseline if grid parameters differ.")
+        if runner.method_param_path and runner.method_param_path in runner.param_paths:
+            x_ref = x.copy()
+            method_idx = runner.param_paths.index(runner.method_param_path)
+            x_ref[method_idx] = DEFAULT_REF_METHOD
+        else:
+            x_ref = x
 
-    # Get bundle path for reference method
     return runner._bundle_path(x_ref)
 
 
@@ -68,5 +69,5 @@ def load_reference_model(runner: CircuitRunner, x: np.ndarray) -> Optional[Any]:
     ref_path = ref_bundle_path(runner, x)
     if not ref_path:
         return None
-
-    return runner._maybe_load_bundle(ref_path)
+    
+    return runner._maybe_load_bundle(ref_path) 

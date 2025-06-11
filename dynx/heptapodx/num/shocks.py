@@ -12,6 +12,77 @@ import numpy as np
 from scipy import stats
 from typing import Dict, List, Any, Optional, Union, Tuple, Callable
 import warnings
+import logging
+import os
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Check for environment variable to override logging level
+_env_log_level = os.environ.get('SHOCKS_LOG_LEVEL', '').upper()
+if _env_log_level in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+    logger.setLevel(getattr(logging, _env_log_level))
+    logging.getLogger().setLevel(getattr(logging, _env_log_level))
+elif os.environ.get('SHOCKS_QUIET', '').lower() in ['true', '1', 'yes']:
+    logger.setLevel(logging.ERROR)
+    logging.getLogger().setLevel(logging.ERROR)
+
+# ==================
+# Logging Control
+# ==================
+
+def set_shocks_logging_level(level: Union[str, int] = 'INFO') -> None:
+    """
+    Control the logging level for shock operations.
+    
+    Args:
+        level: Logging level - can be string ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL') 
+               or integer (10, 20, 30, 40, 50)
+    
+    Examples:
+        set_shocks_logging_level('ERROR')    # Only show errors
+        set_shocks_logging_level('WARNING')  # Show warnings and errors
+        set_shocks_logging_level('DEBUG')    # Show everything
+        set_shocks_logging_level(40)         # Same as 'ERROR'
+    """
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
+    
+    logger.setLevel(level)
+    # Also set the root logger level to ensure basicConfig respects it
+    logging.getLogger().setLevel(level)
+    
+    logger.info(f"Shocks logging level set to {logging.getLevelName(level)}")
+
+def suppress_shocks_warnings(suppress: bool = True) -> None:
+    """
+    Suppress or restore warning messages for shock operations.
+    
+    Args:
+        suppress: True to suppress warnings, False to restore them
+    """
+    if suppress:
+        logger.setLevel(logging.ERROR)
+        logger.error("Shocks warning messages suppressed - only errors will be shown")
+    else:
+        logger.setLevel(logging.INFO)
+        logger.info("Shocks warning messages restored")
+
+def shocks_quiet_mode(enable: bool = True) -> None:
+    """
+    Enable/disable quiet mode for shock operations - only show errors and critical messages.
+    
+    Args:
+        enable: True for quiet mode, False for normal logging
+    """
+    if enable:
+        logger.setLevel(logging.ERROR)
+        logging.getLogger().setLevel(logging.ERROR)
+    else:
+        logger.setLevel(logging.INFO)
+        logging.getLogger().setLevel(logging.INFO)
 
 # Import resolve_reference from state_space to resolve parameter references
 from .state_space import resolve_reference
@@ -137,9 +208,8 @@ def build_lognormal_shock_grid(
             n_grid = n_points - 1
         else:
             n_grid = 1
-            warnings.warn(
-                "Cannot accommodate zero income with n_points=1. Using n_grid=1 anyway.",
-                UserWarning
+            logger.warning(
+                "Cannot accommodate zero income with n_points=1. Using n_grid=1 anyway."
             )
         
         # Compute the lognormal quantiles for equiprobable grid excluding zero income
@@ -221,9 +291,8 @@ def build_adaptive_shock_grid(
     if prob_zero_income > 0:
         # Handle zero income case
         if n_points <= 1:
-            warnings.warn(
-                "n_points too small for adaptive grid with zero income. Using basic normal grid.",
-                UserWarning
+            logger.warning(
+                "n_points too small for adaptive grid with zero income. Using basic normal grid."
             )
             return build_normal_shock_grid(
                 mean, std, n_points, width, prob_zero_income, zero_income_value
@@ -320,9 +389,8 @@ def build_discrete_markov_shock_grid(
     elif method.lower() == "rouwenhorst":
         return rouwenhorst_method(rho, sigma, n_points, mean, **kwargs)
     else:
-        warnings.warn(
-            f"Unknown method: {method}. Using Tauchen method as fallback.",
-            UserWarning
+        logger.warning(
+            f"Unknown method: {method}. Using Tauchen method as fallback."
         )
         return tauchen_method(rho, sigma, n_points, width, mean, **kwargs)
 
@@ -360,9 +428,8 @@ def tauchen_method(
     """
     # Verify parameters
     if not 0 <= abs(rho) < 1:
-        warnings.warn(
-            f"rho={rho} should be in [0,1). Results may be unreliable.",
-            UserWarning
+        logger.warning(
+            f"rho={rho} should be in [0,1). Results may be unreliable."
         )
     
     # Step 1: Create the state grid for z
@@ -614,9 +681,8 @@ def generate_numerical_shocks(problem, methods=None):
         Dictionary representing the numerical shock distributions
     """
     if not hasattr(problem, "math") or "shocks" not in problem.math:
-        warnings.warn(
-            "problem.math['shocks'] not found. Skipping shock generation.",
-            UserWarning
+        logger.warning(
+            "problem.math['shocks'] not found. Skipping shock generation."
         )
         return {}
 
@@ -634,7 +700,9 @@ def generate_numerical_shocks(problem, methods=None):
     }
 
     # Iterate through each defined shock
+    logger.debug(f"Processing {len(analytical_shocks)} shock definitions")
     for shock_name, shock_info in analytical_shocks.items():
+        logger.debug(f"Generating shock grid for '{shock_name}'")
         try:
             # Create storage for this shock if it doesn't exist
             if shock_name not in problem.num["shocks"]:
@@ -666,8 +734,10 @@ def generate_numerical_shocks(problem, methods=None):
             
             # Check for manual shock method
             generation_method = resolved_methods.get("method", None)
+            logger.debug(f"Shock '{shock_name}' using generation method: {generation_method}")
             if generation_method and generation_method.lower() in ['manual', 'explicit']:
                 # Use manual shock process creation
+                logger.debug(f"Creating manual shock process for '{shock_name}'")
                 try:
                     shock_process = create_manual_shock_process(shock_info['parameters'], problem)
                     
@@ -683,7 +753,7 @@ def generate_numerical_shocks(problem, methods=None):
                     # Skip the rest of the loop for manual shocks
                     continue
                 except Exception as e:
-                    warnings.warn(f"Error creating manual shock process for '{shock_name}': {e}", UserWarning)
+                    logger.warning(f"Error creating manual shock process for '{shock_name}': {e}")
                     # Fall through to algorithmic method for fallback
             
             # Standard algorithmic shock process generation (for non-manual methods)
@@ -693,7 +763,7 @@ def generate_numerical_shocks(problem, methods=None):
                 try:
                     resolved_params[param_name] = resolve_reference(param_value, all_params)
                 except (ValueError, TypeError) as e:
-                    warnings.warn(f"Could not resolve parameter '{param_name}' for shock '{shock_name}': {e}")
+                    logger.warning(f"Could not resolve parameter '{param_name}' for shock '{shock_name}': {e}")
                     # Use default values for common parameters
                     if param_name == 'mean':
                         resolved_params[param_name] = 0.0
@@ -708,7 +778,7 @@ def generate_numerical_shocks(problem, methods=None):
                 try:
                     resolved_settings[setting_name] = resolve_reference(setting_value, all_params)
                 except (ValueError, TypeError) as e:
-                    warnings.warn(f"Could not resolve setting '{setting_name}' for shock '{shock_name}': {e}")
+                    logger.warning(f"Could not resolve setting '{setting_name}' for shock '{shock_name}': {e}")
                     # Use default values for common settings
                     if setting_name == 'n_points':
                         resolved_settings[setting_name] = 7
@@ -731,11 +801,11 @@ def generate_numerical_shocks(problem, methods=None):
                 values, probs = values_and_probs
                 problem.num["shocks"][shock_name]["values"] = values
                 problem.num["shocks"][shock_name]["probs"] = probs
+                logger.debug(f"Successfully created shock grid for '{shock_name}' with {len(values)} points")
         
         except Exception as e:
-            warnings.warn(
-                f"Error generating shock grid for shock '{shock_name}': {str(e)}",
-                UserWarning
+            logger.warning(
+                f"Error generating shock grid for shock '{shock_name}': {str(e)}"
             )
             # Create a fallback default shock grid
             try:
@@ -743,7 +813,7 @@ def generate_numerical_shocks(problem, methods=None):
                 default_values, default_probs = build_normal_shock_grid(mean=1.0, std=0.1, size=7)
                 problem.num["shocks"][shock_name]["values"] = default_values
                 problem.num["shocks"][shock_name]["probs"] = default_probs
-                warnings.warn(f"Using fallback normal shock grid for '{shock_name}'", UserWarning)
+                logger.warning(f"Using fallback normal shock grid for '{shock_name}'")
             except Exception:
                 continue
 
