@@ -67,7 +67,9 @@ def load_reference_model(runner: CircuitRunner, x: np.ndarray) -> Optional[Any]:
         ModelCircuit if reference exists and loads successfully, None otherwise
     """
     ref_path = ref_bundle_path(runner, x)
+    ref_cfg = runner.patch_config(runner.ref_params)
+    
     if not ref_path:
         return None
     
-    return runner._maybe_load_bundle(ref_path) 
+    return runner._maybe_load_bundle(ref_path, ref_cfg)

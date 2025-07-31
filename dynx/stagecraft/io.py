@@ -18,6 +18,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Any, List, Dict, Union, Optional
+import gc
 
 import yaml
 
@@ -318,6 +319,8 @@ def load_circuit(
     *,
     restore_data: bool = True,
     cfg_override: Optional[dict] = None,
+    periods_to_load: Optional[List[int]] = None,
+    stages_to_load: Optional[Dict[int, List[str]]] = None,
 ) -> Any:
     """
     Load a ModelCircuit from a saved directory.
@@ -330,6 +333,13 @@ def load_circuit(
         Whether to restore solution/simulation data to perches
     cfg_override : dict, optional
         Override configuration dictionary
+    periods_to_load : list of int, optional
+        List of period indices to load. If None, loads all periods.
+        Example: [0, 1] loads only periods 0 and 1
+    stages_to_load : dict of int to list of str, optional
+        Dictionary mapping period indices to lists of stage names to load.
+        If None for a period, loads all stages in that period.
+        Example: {0: ["OWNC"], 1: None} loads only OWNC in period 0, all stages in period 1
         
     Returns
     -------
@@ -392,6 +402,12 @@ def load_circuit(
         except (IndexError, ValueError):
             logger.warning("Skipping unexpected folder: %s", period_dir)
             continue
+            
+        # Skip periods not in periods_to_load if specified
+        if periods_to_load is not None and p_idx not in periods_to_load:
+            logger.debug(f"Skipping period {p_idx} (not in periods_to_load)")
+            continue
+            
         try:
             period = circuit.periods_list[p_idx]
         except IndexError:
@@ -402,6 +418,13 @@ def load_circuit(
             if not stage_dir.is_dir():
                 continue
             stage_name = stage_dir.name
+            
+            # Skip stages not in stages_to_load for this period if specified
+            if stages_to_load is not None and p_idx in stages_to_load:
+                if stages_to_load[p_idx] is not None and stage_name not in stages_to_load[p_idx]:
+                    logger.debug(f"Skipping stage {stage_name} in period {p_idx} (not in stages_to_load)")
+                    continue
+            
             stage = next((s for s in period.stages.values() if s.name == stage_name), None)
             if stage is None:
                 logger.warning("Stage %s not found in circuit", stage_name)
@@ -435,6 +458,8 @@ def load_circuit(
                                     obj[key] = Solution.from_dict(val)
                         
                         perch.sol = obj
+                        del obj
+                        gc.collect()
                     except Exception as exc:
                         logger.exception("Failed to load sol: %s", sol_path)
 
@@ -457,6 +482,8 @@ def load_circuit(
                                     obj[key] = Solution.from_dict(val)
                         
                         perch.sim = obj
+                        del obj
+                        gc.collect()
                     except Exception as exc:
                         logger.exception("Failed to load sim: %s", sim_path)
 
