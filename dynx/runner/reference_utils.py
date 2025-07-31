@@ -53,15 +53,22 @@ def ref_bundle_path(runner: CircuitRunner, x: np.ndarray) -> Optional[Path]:
     return runner._bundle_path(x_ref)
 
 
-def load_reference_model(runner: CircuitRunner, x: np.ndarray) -> Optional[Any]:
+def load_reference_model(
+    runner: CircuitRunner, 
+    x: np.ndarray,
+    metric_requirements: Optional[dict] = None
+) -> Optional[Any]:
     """
-    Load reference model if it exists.
+    Load reference model if it exists, with optional selective loading.
 
     Looks for a bundle saved with DEFAULT_REF_METHOD for the given parameters.
 
     Args:
         runner: CircuitRunner instance
         x: Parameter vector
+        metric_requirements: Optional dict with keys:
+            - periods_to_load: List[int] of periods needed
+            - stages_to_load: Dict[int, List[str]] of stages per period
 
     Returns:
         ModelCircuit if reference exists and loads successfully, None otherwise
@@ -72,4 +79,16 @@ def load_reference_model(runner: CircuitRunner, x: np.ndarray) -> Optional[Any]:
     if not ref_path:
         return None
     
+    # If we have metric requirements, use selective loading
+    if metric_requirements:
+        periods_to_load = metric_requirements.get('periods_to_load')
+        stages_to_load = metric_requirements.get('stages_to_load')
+        return runner._maybe_load_bundle(
+            ref_path, 
+            ref_cfg,
+            periods_to_load=periods_to_load,
+            stages_to_load=stages_to_load
+        )
+    
+    # Otherwise fall back to full load
     return runner._maybe_load_bundle(ref_path, ref_cfg)
