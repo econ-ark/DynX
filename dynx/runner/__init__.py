@@ -14,6 +14,7 @@ parameter sets, collecting metrics, and visualizing results. The main components
 """
 
 from dynx.runner.circuit_runner import CircuitRunner, mpi_map, plot_metrics, plot_errors
+from dynx.runner.circuit_runner import _write_design_matrix_csv as write_design_matrix_csv
 from dynx.runner.telemetry import RunRecorder
 from dynx.runner.sampler import (
     BaseSampler, MVNormSampler, FullGridSampler, 
@@ -35,7 +36,8 @@ __all__ = [
     'reference_utils', 'metrics',
     'dev_c_L2', 'dev_c_Linf', 'dev_a_L2', 'dev_a_Linf',
     'dev_v_L2', 'dev_v_Linf', 'dev_pol_L2', 'dev_pol_Linf',
-    'make_policy_dev_metric'
+    'make_policy_dev_metric',
+    'write_design_matrix_csv'
 ]
 
 __version__ = "0.1.0"

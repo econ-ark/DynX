@@ -315,6 +315,8 @@ class CircuitRunner:
         self,
         path: Path,
         cfg_override: Optional[Dict[str, Any]] = None,
+        periods_to_load: Optional[List[int]] = None,
+        stages_to_load: Optional[Dict[int, List[str]]] = None,
     ) -> Optional[Any]:
         """
         Wrapper around load_circuit catching FileNotFoundError.
@@ -322,6 +324,8 @@ class CircuitRunner:
         Args:
             path: Path to bundle directory
             cfg_override: Optional configuration to override loaded configs
+            periods_to_load: Optional list of period indices to load
+            stages_to_load: Optional dict mapping period indices to stage names
 
         Returns:
             ModelCircuit if loaded successfully, None otherwise
@@ -330,7 +334,12 @@ class CircuitRunner:
             return None
 
         try:
-            model = load_circuit(path, cfg_override=cfg_override)
+            model = load_circuit(
+                path, 
+                cfg_override=cfg_override,
+                periods_to_load=periods_to_load,
+                stages_to_load=stages_to_load
+            )
             return model
         except FileNotFoundError:
             return None
@@ -444,7 +453,16 @@ class CircuitRunner:
         # ------------------------------------------------------------
         model = None
         if force_load and rank == 0:
-            model = self._maybe_load_bundle(bundle_path, cfg_override=cfg)
+            # Check if we have loading requirements stored on the runner
+            periods_to_load = getattr(self, 'periods_to_load', None)
+            stages_to_load = getattr(self, 'stages_to_load', None)
+            
+            model = self._maybe_load_bundle(
+                bundle_path, 
+                cfg_override=cfg,
+                periods_to_load=periods_to_load,
+                stages_to_load=stages_to_load
+            )
             if model is None:
                 raise FileNotFoundError(
                     f"[runner] bundle {bundle_path} not found or could not be loaded "
